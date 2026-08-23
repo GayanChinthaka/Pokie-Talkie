@@ -8,6 +8,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -75,6 +76,9 @@ class TelecomCallManager(
     ) {
         Log.i(tag, "Reporting incoming call from $callerName ($callerId) [Type: $callType, ID: $callId]")
 
+        // Wake screen & CPU
+        wakeUpScreen()
+
         val session = CallSession(
             callId = callId,
             peerId = callerId,
@@ -100,13 +104,27 @@ class TelecomCallManager(
             if (ActivityCompat.checkSelfPermission(context, Manifest.permission.MANAGE_OWN_CALLS) == PackageManager.PERMISSION_GRANTED) {
                 telecomManager.addNewIncomingCall(phoneAccountHandle, extras)
                 Log.d(tag, "addNewIncomingCall dispatched to TelecomManager")
-            } else {
-                Log.w(tag, "MANAGE_OWN_CALLS permission not granted; falling back to Fullscreen Notification")
-                showIncomingCallNotification(callerId, callerName, callType, callId)
             }
         } catch (e: Exception) {
-            Log.e(tag, "TelecomManager failed: ${e.message}. Showing fullscreen notification fallback.")
-            showIncomingCallNotification(callerId, callerName, callType, callId)
+            Log.e(tag, "TelecomManager addNewIncomingCall failed: ${e.message}")
+        }
+
+        // Self-managed connection services MUST always display their own incoming call notification / fullscreen UI
+        showIncomingCallNotification(callerId, callerName, callType, callId)
+    }
+
+    private fun wakeUpScreen() {
+        try {
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            val wakeLock = powerManager?.newWakeLock(
+                android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                android.os.PowerManager.ON_AFTER_RELEASE,
+                "pokie_talkie:incoming_call_wake"
+            )
+            wakeLock?.acquire(15000L) // 15 seconds
+        } catch (e: Exception) {
+            Log.w(tag, "Could not acquire WakeLock: ${e.message}")
         }
     }
 
@@ -163,25 +181,61 @@ class TelecomCallManager(
             putExtra(EXTRA_CALL_ID, callId)
         }
 
-        val pendingIntent = PendingIntent.getActivity(
+        val pendingFullscreenIntent = PendingIntent.getActivity(
             context,
             101,
             fullscreenIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        // Decline Action PendingIntent
+        val declineIntent = Intent(context, CallActionReceiver::class.java).apply {
+            action = CallActionReceiver.ACTION_DECLINE_CALL
+            putExtra(EXTRA_PEER_ID, callerId)
+            putExtra(EXTRA_CALL_ID, callId)
+        }
+        val declinePendingIntent = PendingIntent.getBroadcast(
+            context,
+            102,
+            declineIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Answer Action PendingIntent
+        val answerIntent = Intent(context, CallActionReceiver::class.java).apply {
+            action = CallActionReceiver.ACTION_ANSWER_CALL
+            putExtra(EXTRA_PEER_ID, callerId)
+            putExtra(EXTRA_PEER_NAME, callerName)
+            putExtra(EXTRA_CALL_TYPE, callType.name)
+            putExtra(EXTRA_CALL_ID, callId)
+        }
+        val answerPendingIntent = PendingIntent.getBroadcast(
+            context,
+            103,
+            answerIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+
         val notification = NotificationCompat.Builder(context, CHANNEL_CALLS_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("Incoming ${if (callType == CallType.VIDEO) "Video" else "Voice"} Call")
-            .setContentText("$callerName is calling on Pokie Talkie...")
+            .setContentText("$callerName is calling...")
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setAutoCancel(true)
+            .setAutoCancel(false)
             .setOngoing(true)
-            .setFullScreenIntent(pendingIntent, true)
-            .setContentIntent(pendingIntent)
+            .setSound(ringtoneUri)
+            .setVibrate(longArrayOf(0, 1000, 500, 1000))
+            .setFullScreenIntent(pendingFullscreenIntent, true)
+            .setContentIntent(pendingFullscreenIntent)
+            .addAction(R.drawable.ic_launcher_foreground, "Decline", declinePendingIntent)
+            .addAction(R.drawable.ic_launcher_foreground, "Answer", answerPendingIntent)
             .build()
+
+        notification.flags = notification.flags or android.app.Notification.FLAG_INSISTENT
 
         notificationManager.notify(NOTIFICATION_CALL_ID, notification)
     }

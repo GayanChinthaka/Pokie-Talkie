@@ -89,6 +89,16 @@
             </intent-filter>
         </service>
 
+        <!-- Call Action Receiver for Notification Answer/Decline buttons -->
+        <receiver
+            android:name=".telecom.CallActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.pokerlanka.pokie_talkie.ACTION_DECLINE_CALL" />
+                <action android:name="com.pokerlanka.pokie_talkie.ACTION_ANSWER_CALL" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>
