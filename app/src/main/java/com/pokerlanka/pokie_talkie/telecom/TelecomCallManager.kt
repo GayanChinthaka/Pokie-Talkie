@@ -76,8 +76,15 @@ class TelecomCallManager(
     ) {
         Log.i(tag, "Reporting incoming call from $callerName ($callerId) [Type: $callType, ID: $callId]")
 
-        // Wake screen & CPU
-        wakeUpScreen()
+        val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+        val isScreenOffOrLocked = (keyguardManager?.isKeyguardLocked == true) || (powerManager?.isInteractive == false)
+        val isForeground = com.pokerlanka.pokie_talkie.PokieApp.isAppInForeground
+
+        if (isScreenOffOrLocked) {
+            // Wake screen & CPU so lockscreen full-screen activity can be displayed immediately
+            wakeUpScreen()
+        }
 
         val session = CallSession(
             callId = callId,
@@ -109,8 +116,18 @@ class TelecomCallManager(
             Log.e(tag, "TelecomManager addNewIncomingCall failed: ${e.message}")
         }
 
-        // Self-managed connection services MUST always display their own incoming call notification / fullscreen UI
-        showIncomingCallNotification(callerId, callerName, callType, callId)
+        // - In-App: App is in foreground -> Compose UI navigates to full-screen CallScreen without top notification banner
+        // - Minimized: Only Notification Banner with Answer/Decline actions
+        // - Screen Lock: Fullscreen Incoming Call UI directly on lockscreen
+        if (!isForeground) {
+            showIncomingCallNotification(
+                callerId = callerId,
+                callerName = callerName,
+                callType = callType,
+                callId = callId,
+                isScreenOffOrLocked = isScreenOffOrLocked
+            )
+        }
     }
 
     private fun wakeUpScreen() {
@@ -171,7 +188,8 @@ class TelecomCallManager(
         callerId: String,
         callerName: String,
         callType: CallType,
-        callId: String
+        callId: String,
+        isScreenOffOrLocked: Boolean = true
     ) {
         val fullscreenIntent = Intent(context, IncomingCallActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -218,7 +236,7 @@ class TelecomCallManager(
 
         val ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_CALLS_ID)
+        val builder = NotificationCompat.Builder(context, CHANNEL_CALLS_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("Incoming ${if (callType == CallType.VIDEO) "Video" else "Voice"} Call")
             .setContentText("$callerName is calling...")
@@ -229,12 +247,16 @@ class TelecomCallManager(
             .setOngoing(true)
             .setSound(ringtoneUri)
             .setVibrate(longArrayOf(0, 1000, 500, 1000))
-            .setFullScreenIntent(pendingFullscreenIntent, true)
             .setContentIntent(pendingFullscreenIntent)
             .addAction(R.drawable.ic_launcher_foreground, "Decline", declinePendingIntent)
             .addAction(R.drawable.ic_launcher_foreground, "Answer", answerPendingIntent)
-            .build()
 
+        // Only launch full screen intent when the device is locked / screen is off
+        if (isScreenOffOrLocked) {
+            builder.setFullScreenIntent(pendingFullscreenIntent, true)
+        }
+
+        val notification = builder.build()
         notification.flags = notification.flags or android.app.Notification.FLAG_INSISTENT
 
         notificationManager.notify(NOTIFICATION_CALL_ID, notification)
