@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Pokie Talkie</string>
+    <string name="phone_account_label">Pokie Talkie Local Calling</string>
+    <string name="channel_calls_name">Pokie Talkie Incoming Calls</string>
+    <string name="channel_calls_desc">High-priority alerts for incoming voice and video calls</string>
+    <string name="channel_messages_name">Pokie Talkie Chat Messages</string>
+    <string name="channel_messages_desc">Notifications for new family messages</string>
+</resources>

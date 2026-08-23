@@ -1,0 +1,59 @@
+package com.pokerlanka.pokie_talkie.ui.call
+
+import android.app.KeyguardManager
+import android.content.Context
+import android.os.Build
+import android.os.Bundle
+import android.view.WindowManager
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.lifecycle.ViewModelProvider
+import com.pokerlanka.pokie_talkie.PokieApp
+import com.pokerlanka.pokie_talkie.ui.theme.PokieTalkieTheme
+
+class IncomingCallActivity : ComponentActivity() {
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        turnScreenOnAndUnlock()
+
+        val app = application as PokieApp
+        val container = app.appContainer
+
+        val viewModel = ViewModelProvider(
+            this,
+            CallViewModel.provideFactory(
+                callRepository = container.callRepository,
+                webRtcManager = container.webRtcManager,
+                fcmSignalingClient = container.fcmSignalingClient,
+                telecomCallManager = container.telecomCallManager
+            )
+        )[CallViewModel::class.java]
+
+        setContent {
+            PokieTalkieTheme {
+                CallScreen(
+                    viewModel = viewModel,
+                    onCallEnded = { finish() }
+                )
+            }
+        }
+    }
+
+    private fun turnScreenOnAndUnlock() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+            val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+            keyguardManager.requestDismissKeyguard(this, null)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            )
+        }
+    }
+}

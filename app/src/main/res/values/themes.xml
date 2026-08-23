@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.PokieTalkie" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@color/pokie_surface_dark</item>
+        <item name="android:navigationBarColor">@color/pokie_bg_dark</item>
+    </style>
+
+    <style name="Theme.PokieTalkie.FullscreenCall" parent="Theme.PokieTalkie">
+        <item name="android:windowBackground">@color/pokie_bg_dark</item>
+    </style>
+</resources>

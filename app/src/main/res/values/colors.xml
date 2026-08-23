@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="pokie_primary">#00A884</color>
+    <color name="pokie_primary_dark">#008069</color>
+    <color name="pokie_accent">#25D366</color>
+    <color name="pokie_bg_dark">#0B141B</color>
+    <color name="pokie_surface_dark">#111B21</color>
+    <color name="pokie_surface_card">#202C33</color>
+    <color name="pokie_text_primary">#E9EDEF</color>
+    <color name="pokie_text_secondary">#8696A0</color>
+    <color name="pokie_call_red">#EA4335</color>
+    <color name="pokie_call_green">#00A884</color>
+</resources>

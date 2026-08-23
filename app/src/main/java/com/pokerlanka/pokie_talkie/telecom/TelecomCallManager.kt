@@ -1,0 +1,192 @@
+package com.pokerlanka.pokie_talkie.telecom
+
+import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.telecom.PhoneAccount
+import android.telecom.PhoneAccountHandle
+import android.telecom.TelecomManager
+import android.telecom.VideoProfile
+import android.util.Log
+import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationCompat
+import com.pokerlanka.pokie_talkie.R
+import com.pokerlanka.pokie_talkie.data.model.CallSession
+import com.pokerlanka.pokie_talkie.data.model.CallState
+import com.pokerlanka.pokie_talkie.data.model.CallType
+import com.pokerlanka.pokie_talkie.data.repository.CallRepository
+import com.pokerlanka.pokie_talkie.ui.call.IncomingCallActivity
+
+class TelecomCallManager(
+    private val context: Context,
+    private val callRepository: CallRepository
+) {
+    private val tag = "TelecomCallManager"
+    private val telecomManager = context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
+    private val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+    companion object {
+        const val PHONE_ACCOUNT_ID = "pokie_talkie_phone_account"
+        const val EXTRA_PEER_ID = "extra_peer_id"
+        const val EXTRA_PEER_NAME = "extra_peer_name"
+        const val EXTRA_CALL_ID = "extra_call_id"
+        const val EXTRA_CALL_TYPE = "extra_call_type"
+
+        const val CHANNEL_CALLS_ID = "pokie_incoming_calls"
+        const val NOTIFICATION_CALL_ID = 9999
+    }
+
+    val phoneAccountHandle: PhoneAccountHandle by lazy {
+        val componentName = ComponentName(context, PokieConnectionService::class.java)
+        PhoneAccountHandle(componentName, PHONE_ACCOUNT_ID)
+    }
+
+    fun registerPhoneAccount() {
+        try {
+            val builder = PhoneAccount.builder(phoneAccountHandle, context.getString(R.string.phone_account_label))
+                .setCapabilities(
+                    PhoneAccount.CAPABILITY_SELF_MANAGED or
+                    PhoneAccount.CAPABILITY_SUPPORTS_VIDEO_CALLING
+                )
+                .setShortDescription("Pokie Talkie LAN Calling")
+                .setHighlightColor(context.getColor(R.color.pokie_primary))
+
+            val phoneAccount = builder.build()
+            telecomManager.registerPhoneAccount(phoneAccount)
+            Log.i(tag, "PhoneAccount registered successfully with TelecomManager")
+        } catch (e: Exception) {
+            Log.e(tag, "Error registering PhoneAccount: ${e.message}")
+        }
+    }
+
+    fun handleIncomingCall(
+        callerId: String,
+        callerName: String,
+        callType: CallType,
+        callId: String
+    ) {
+        Log.i(tag, "Reporting incoming call from $callerName ($callerId) [Type: $callType, ID: $callId]")
+
+        val session = CallSession(
+            callId = callId,
+            peerId = callerId,
+            peerName = callerName,
+            callType = callType,
+            isIncoming = true,
+            state = CallState.RINGING_INCOMING
+        )
+        callRepository.setCallSession(session)
+
+        val extras = Bundle().apply {
+            putString(EXTRA_PEER_ID, callerId)
+            putString(EXTRA_PEER_NAME, callerName)
+            putString(EXTRA_CALL_ID, callId)
+            putString(EXTRA_CALL_TYPE, callType.name)
+            putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, phoneAccountHandle)
+            if (callType == CallType.VIDEO) {
+                putInt(TelecomManager.EXTRA_START_CALL_WITH_VIDEO_STATE, VideoProfile.STATE_BIDIRECTIONAL)
+            }
+        }
+
+        try {
+            if (ActivityCompat.checkSelfPermission(context, Manifest.permission.MANAGE_OWN_CALLS) == PackageManager.PERMISSION_GRANTED) {
+                telecomManager.addNewIncomingCall(phoneAccountHandle, extras)
+                Log.d(tag, "addNewIncomingCall dispatched to TelecomManager")
+            } else {
+                Log.w(tag, "MANAGE_OWN_CALLS permission not granted; falling back to Fullscreen Notification")
+                showIncomingCallNotification(callerId, callerName, callType, callId)
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "TelecomManager failed: ${e.message}. Showing fullscreen notification fallback.")
+            showIncomingCallNotification(callerId, callerName, callType, callId)
+        }
+    }
+
+    fun startOutgoingCall(
+        recipientId: String,
+        recipientName: String,
+        callType: CallType,
+        callId: String
+    ) {
+        Log.i(tag, "Starting outgoing call to $recipientName ($recipientId)")
+
+        val session = CallSession(
+            callId = callId,
+            peerId = recipientId,
+            peerName = recipientName,
+            callType = callType,
+            isIncoming = false,
+            state = CallState.RINGING_OUTGOING
+        )
+        callRepository.setCallSession(session)
+
+        val extras = Bundle().apply {
+            putString(EXTRA_PEER_ID, recipientId)
+            putString(EXTRA_PEER_NAME, recipientName)
+            putString(EXTRA_CALL_ID, callId)
+            putString(EXTRA_CALL_TYPE, callType.name)
+            putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, phoneAccountHandle)
+            if (callType == CallType.VIDEO) {
+                putInt(TelecomManager.EXTRA_START_CALL_WITH_VIDEO_STATE, VideoProfile.STATE_BIDIRECTIONAL)
+            }
+        }
+
+        try {
+            if (ActivityCompat.checkSelfPermission(context, Manifest.permission.MANAGE_OWN_CALLS) == PackageManager.PERMISSION_GRANTED) {
+                val uri = Uri.fromParts("tel", recipientId, null)
+                telecomManager.placeCall(uri, extras)
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Error placing outgoing call through TelecomManager: ${e.message}")
+        }
+    }
+
+    fun showIncomingCallNotification(
+        callerId: String,
+        callerName: String,
+        callType: CallType,
+        callId: String
+    ) {
+        val fullscreenIntent = Intent(context, IncomingCallActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_PEER_ID, callerId)
+            putExtra(EXTRA_PEER_NAME, callerName)
+            putExtra(EXTRA_CALL_TYPE, callType.name)
+            putExtra(EXTRA_CALL_ID, callId)
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            101,
+            fullscreenIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_CALLS_ID)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("Incoming ${if (callType == CallType.VIDEO) "Video" else "Voice"} Call")
+            .setContentText("$callerName is calling on Pokie Talkie...")
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setAutoCancel(true)
+            .setOngoing(true)
+            .setFullScreenIntent(pendingIntent, true)
+            .setContentIntent(pendingIntent)
+            .build()
+
+        notificationManager.notify(NOTIFICATION_CALL_ID, notification)
+    }
+
+    fun dismissCallNotification() {
+        notificationManager.cancel(NOTIFICATION_CALL_ID)
+    }
+}
