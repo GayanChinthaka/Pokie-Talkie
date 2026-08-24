@@ -57,6 +57,7 @@ import com.pokerlanka.pokie_talkie.data.model.CallState
 import com.pokerlanka.pokie_talkie.data.model.CallType
 import com.pokerlanka.pokie_talkie.ui.components.AvatarView
 import com.pokerlanka.pokie_talkie.ui.components.CallControlButton
+import com.pokerlanka.pokie_talkie.ui.components.SwipeableIncomingCallControl
 import com.pokerlanka.pokie_talkie.ui.theme.PokieCallGreen
 import com.pokerlanka.pokie_talkie.ui.theme.PokieCallRed
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkBg
@@ -302,30 +303,12 @@ fun DevMockCallScreen(
                 modifier = Modifier.padding(bottom = 24.dp)
             ) {
                 if (isRingingIncoming) {
-                    // Incoming Call Accept / Decline Buttons
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        CallControlButton(
-                            icon = Icons.Default.CallEnd,
-                            label = "Decline",
-                            backgroundColor = PokieCallRed,
-                            iconTint = Color.White,
-                            size = 64.dp,
-                            onClick = onBack
-                        )
-
-                        CallControlButton(
-                            icon = if (isVideo) Icons.Default.Videocam else Icons.Default.Call,
-                            label = "Accept",
-                            backgroundColor = PokieCallGreen,
-                            iconTint = Color.White,
-                            size = 64.dp,
-                            onClick = { callState = CallState.CONNECTED }
-                        )
-                    }
+                    // Swipeable & Tappable Incoming Call Accept / Decline with Animated Chevrons
+                    SwipeableIncomingCallControl(
+                        isVideo = isVideo,
+                        onAnswer = { callState = CallState.CONNECTED },
+                        onDecline = onBack
+                    )
                 } else {
                     // Active / Outgoing In-Call Controls
                     Row(

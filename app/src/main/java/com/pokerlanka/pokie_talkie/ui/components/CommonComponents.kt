@@ -1,42 +1,71 @@
 package com.pokerlanka.pokie_talkie.ui.components
 
+import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.DoneAll
-import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pokerlanka.pokie_talkie.data.model.Message
 import com.pokerlanka.pokie_talkie.data.model.MessageStatus
 import com.pokerlanka.pokie_talkie.data.model.MessageType
+import com.pokerlanka.pokie_talkie.ui.theme.PokieCallGreen
+import com.pokerlanka.pokie_talkie.ui.theme.PokieCallRed
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkBg
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkBubbleMe
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkBubblePeer
@@ -48,15 +77,12 @@ import com.pokerlanka.pokie_talkie.ui.theme.PokieLightTextPrimary
 import com.pokerlanka.pokie_talkie.ui.theme.PokieLightTextSecondary
 import com.pokerlanka.pokie_talkie.ui.theme.PokieTextPrimary
 import com.pokerlanka.pokie_talkie.ui.theme.PokieTextSecondary
+import kotlinx.coroutines.launch
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.runtime.remember
+import kotlin.math.roundToInt
 
 @Composable
 fun AvatarView(
@@ -193,6 +219,238 @@ fun CallControlButton(
             color = Color.White.copy(alpha = 0.85f),
             style = MaterialTheme.typography.labelSmall
         )
+    }
+}
+
+@Composable
+fun SwipeableIncomingCallControl(
+    isVideo: Boolean,
+    onAnswer: () -> Unit,
+    onDecline: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val coroutineScope = rememberCoroutineScope()
+    val declineOffsetX = remember { Animatable(0f) }
+    val answerOffsetX = remember { Animatable(0f) }
+
+    // Pulsing animations for chevrons & halos
+    val infiniteTransition = rememberInfiniteTransition(label = "swipeAnim")
+    val leftArrowOffset by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = -12f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "leftArrow"
+    )
+    val rightArrowOffset by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 12f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "rightArrow"
+    )
+    val chevronAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "chevronAlpha"
+    )
+    val haloPulse by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.22f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "haloPulse"
+    )
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // LEFT: Decline Area (<<< [Red Button])
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.Start
+            ) {
+                // Animated Left Chevrons <<<
+                Row(
+                    modifier = Modifier
+                        .offset(x = leftArrowOffset.dp)
+                        .padding(end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                        contentDescription = "Swipe Left to Decline",
+                        tint = PokieCallRed.copy(alpha = (chevronAlpha * 0.5f).coerceIn(0f, 1f)),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                        contentDescription = null,
+                        tint = PokieCallRed.copy(alpha = (chevronAlpha * 0.8f).coerceIn(0f, 1f)),
+                        modifier = Modifier.size(20.dp).offset(x = (-4).dp)
+                    )
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                        contentDescription = null,
+                        tint = PokieCallRed.copy(alpha = chevronAlpha),
+                        modifier = Modifier.size(20.dp).offset(x = (-8).dp)
+                    )
+                }
+
+                // Decline Action Button (Draggable left & Tappable)
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .offset { IntOffset(declineOffsetX.value.roundToInt(), 0) }
+                        .pointerInput(Unit) {
+                            detectHorizontalDragGestures(
+                                onDragEnd = {
+                                    if (declineOffsetX.value < -70f) {
+                                        onDecline()
+                                    } else {
+                                        coroutineScope.launch {
+                                            declineOffsetX.animateTo(0f, tween(300))
+                                        }
+                                    }
+                                },
+                                onHorizontalDrag = { _, dragAmount ->
+                                    val newOffset = (declineOffsetX.value + dragAmount).coerceIn(-160f, 0f)
+                                    coroutineScope.launch {
+                                        declineOffsetX.snapTo(newOffset)
+                                    }
+                                }
+                            )
+                        }
+                ) {
+                    // Pulsing Halo
+                    Box(
+                        modifier = Modifier
+                            .size(72.dp)
+                            .scale(haloPulse)
+                            .clip(CircleShape)
+                            .background(PokieCallRed.copy(alpha = 0.22f))
+                    )
+                    IconButton(
+                        onClick = onDecline,
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(PokieCallRed)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CallEnd,
+                            contentDescription = "Decline Call",
+                            tint = Color.White,
+                            modifier = Modifier.size(30.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            // RIGHT: Answer Area ([Green Button] >>>)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.End
+            ) {
+                // Answer Action Button (Draggable right & Tappable)
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .offset { IntOffset(answerOffsetX.value.roundToInt(), 0) }
+                        .pointerInput(Unit) {
+                            detectHorizontalDragGestures(
+                                onDragEnd = {
+                                    if (answerOffsetX.value > 70f) {
+                                        onAnswer()
+                                    } else {
+                                        coroutineScope.launch {
+                                            answerOffsetX.animateTo(0f, tween(300))
+                                        }
+                                    }
+                                },
+                                onHorizontalDrag = { _, dragAmount ->
+                                    val newOffset = (answerOffsetX.value + dragAmount).coerceIn(0f, 160f)
+                                    coroutineScope.launch {
+                                        answerOffsetX.snapTo(newOffset)
+                                    }
+                                }
+                            )
+                        }
+                ) {
+                    // Pulsing Halo
+                    Box(
+                        modifier = Modifier
+                            .size(72.dp)
+                            .scale(haloPulse)
+                            .clip(CircleShape)
+                            .background(PokieCallGreen.copy(alpha = 0.25f))
+                    )
+                    IconButton(
+                        onClick = onAnswer,
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(PokieCallGreen)
+                    ) {
+                        Icon(
+                            imageVector = if (isVideo) Icons.Default.Videocam else Icons.Default.Call,
+                            contentDescription = "Accept Call",
+                            tint = Color.White,
+                            modifier = Modifier.size(30.dp)
+                        )
+                    }
+                }
+
+                // Animated Right Chevrons >>>
+                Row(
+                    modifier = Modifier
+                        .offset(x = rightArrowOffset.dp)
+                        .padding(start = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = "Swipe Right to Answer",
+                        tint = PokieCallGreen.copy(alpha = chevronAlpha),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = PokieCallGreen.copy(alpha = (chevronAlpha * 0.8f).coerceIn(0f, 1f)),
+                        modifier = Modifier.size(20.dp).offset(x = (-4).dp)
+                    )
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = PokieCallGreen.copy(alpha = (chevronAlpha * 0.5f).coerceIn(0f, 1f)),
+                        modifier = Modifier.size(20.dp).offset(x = (-8).dp)
+                    )
+                }
+            }
+        }
     }
 }
 
