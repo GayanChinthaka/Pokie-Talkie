@@ -67,6 +67,7 @@ import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkBg
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkCard
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkInput
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkSurface
+import com.pokerlanka.pokie_talkie.ui.dev.DevConfig
 import com.pokerlanka.pokie_talkie.ui.theme.PokieEmerald
 import com.pokerlanka.pokie_talkie.ui.theme.PokieLanActiveBadge
 import com.pokerlanka.pokie_talkie.ui.theme.PokieTextPrimary
@@ -78,6 +79,7 @@ fun HomeScreen(
     viewModel: HomeViewModel,
     onNavigateToChat: (String) -> Unit,
     onNavigateToCall: (String, CallType) -> Unit,
+    onNavigateToDevHub: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -131,6 +133,28 @@ fun HomeScreen(
                     }
                 },
                 actions = {
+                    if (DevConfig.IS_DEV_MODE) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFFF59E0B).copy(alpha = 0.2f),
+                            modifier = Modifier
+                                .padding(end = 4.dp)
+                                .clickable(onClick = onNavigateToDevHub)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "🧪 UI Test Hub",
+                                    color = Color(0xFFFBBF24),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+
                     IconButton(onClick = viewModel::openEditProfileDialog) {
                         Icon(
                             imageVector = Icons.Default.Edit,

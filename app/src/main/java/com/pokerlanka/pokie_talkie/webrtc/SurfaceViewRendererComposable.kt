@@ -2,7 +2,10 @@ package com.pokerlanka.pokie_talkie.webrtc
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import org.webrtc.EglBase
@@ -18,6 +21,21 @@ fun WebRtcVideoView(
     isMirror: Boolean = false,
     scalingType: RendererCommon.ScalingType = RendererCommon.ScalingType.SCALE_ASPECT_FILL
 ) {
+    var renderer by remember { mutableStateOf<SurfaceViewRenderer?>(null) }
+
+    DisposableEffect(videoTrack, renderer) {
+        val currentRenderer = renderer
+        val currentTrack = videoTrack
+        if (currentRenderer != null && currentTrack != null) {
+            currentTrack.addSink(currentRenderer)
+        }
+        onDispose {
+            if (currentRenderer != null && currentTrack != null) {
+                currentTrack.removeSink(currentRenderer)
+            }
+        }
+    }
+
     AndroidView(
         modifier = modifier,
         factory = { context ->
@@ -27,16 +45,17 @@ fun WebRtcVideoView(
                 setMirror(isMirror)
                 setEnableHardwareScaler(true)
                 setZOrderMediaOverlay(isMirror) // Bring local preview to top if PIP
+                renderer = this
             }
         },
-        update = { renderer ->
-            renderer.setMirror(isMirror)
-            renderer.setScalingType(scalingType)
-            videoTrack?.addSink(renderer)
+        update = { r ->
+            r.setMirror(isMirror)
+            r.setScalingType(scalingType)
         },
-        onRelease = { renderer ->
-            videoTrack?.removeSink(renderer)
-            renderer.release()
+        onRelease = { r ->
+            renderer = null
+            r.release()
         }
     )
 }
+

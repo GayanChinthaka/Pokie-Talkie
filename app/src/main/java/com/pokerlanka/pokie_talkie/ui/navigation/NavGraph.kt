@@ -8,12 +8,16 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.pokerlanka.pokie_talkie.data.model.CallState
 import com.pokerlanka.pokie_talkie.data.model.CallType
 import com.pokerlanka.pokie_talkie.di.AppContainer
 import com.pokerlanka.pokie_talkie.ui.call.CallScreen
 import com.pokerlanka.pokie_talkie.ui.call.CallViewModel
 import com.pokerlanka.pokie_talkie.ui.chat.ChatScreen
 import com.pokerlanka.pokie_talkie.ui.chat.ChatViewModel
+import com.pokerlanka.pokie_talkie.ui.dev.DevConfig
+import com.pokerlanka.pokie_talkie.ui.dev.DevMockCallScreen
+import com.pokerlanka.pokie_talkie.ui.dev.DevPreviewHubScreen
 import com.pokerlanka.pokie_talkie.ui.home.HomeScreen
 import com.pokerlanka.pokie_talkie.ui.home.HomeViewModel
 
@@ -24,6 +28,11 @@ sealed class Screen(val route: String) {
     }
     object Call : Screen("call/{peerId}/{callType}") {
         fun createRoute(peerId: String, callType: CallType) = "call/$peerId/${callType.name}"
+    }
+    object DevHub : Screen("dev_hub")
+    object DevMockCall : Screen("dev_mock_call/{peerName}/{callType}/{callState}") {
+        fun createRoute(peerName: String, callType: CallType, callState: CallState) =
+            "dev_mock_call/$peerName/${callType.name}/${callState.name}"
     }
 }
 
@@ -50,6 +59,9 @@ fun PokieNavGraph(
                 },
                 onNavigateToCall = { peerId, callType ->
                     navController.navigate(Screen.Call.createRoute(peerId, callType))
+                },
+                onNavigateToDevHub = {
+                    navController.navigate(Screen.DevHub.route)
                 }
             )
         }
@@ -99,6 +111,44 @@ fun PokieNavGraph(
                 viewModel = callViewModel,
                 onCallEnded = { navController.popBackStack() }
             )
+        }
+
+        if (DevConfig.IS_DEV_MODE) {
+            composable(Screen.DevHub.route) {
+                DevPreviewHubScreen(
+                    appContainer = appContainer,
+                    onBack = { navController.popBackStack() },
+                    onOpenMockCall = { peerName, callType, callState ->
+                        navController.navigate(Screen.DevMockCall.createRoute(peerName, callType, callState))
+                    },
+                    onOpenChat = { peerId ->
+                        navController.navigate(Screen.Chat.createRoute(peerId))
+                    }
+                )
+            }
+
+            composable(
+                route = Screen.DevMockCall.route,
+                arguments = listOf(
+                    navArgument("peerName") { type = NavType.StringType },
+                    navArgument("callType") { type = NavType.StringType },
+                    navArgument("callState") { type = NavType.StringType }
+                )
+            ) { backStackEntry ->
+                val peerName = backStackEntry.arguments?.getString("peerName") ?: "Family Member"
+                val callTypeStr = backStackEntry.arguments?.getString("callType") ?: CallType.VOICE.name
+                val callStateStr = backStackEntry.arguments?.getString("callState") ?: CallState.CONNECTED.name
+
+                val callType = try { CallType.valueOf(callTypeStr) } catch (e: Exception) { CallType.VOICE }
+                val callState = try { CallState.valueOf(callStateStr) } catch (e: Exception) { CallState.CONNECTED }
+
+                DevMockCallScreen(
+                    peerName = peerName,
+                    initialCallType = callType,
+                    initialCallState = callState,
+                    onBack = { navController.popBackStack() }
+                )
+            }
         }
     }
 }
