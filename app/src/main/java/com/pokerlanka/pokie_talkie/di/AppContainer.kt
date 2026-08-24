@@ -67,8 +67,8 @@ class AppContainer(val context: Context) {
         )
     }
 
-    val telecomCallManager by lazy { TelecomCallManager(context, callRepository) }
     val webRtcManager by lazy { WebRtcManager(context, applicationScope) }
+    val telecomCallManager by lazy { TelecomCallManager(context, callRepository, webRtcManager) }
 
     fun updateMyProfileName(newName: String) {
         userPreferencesManager.setUserName(newName)

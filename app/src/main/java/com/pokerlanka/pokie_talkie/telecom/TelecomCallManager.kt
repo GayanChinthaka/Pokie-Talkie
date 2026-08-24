@@ -26,9 +26,12 @@ import com.pokerlanka.pokie_talkie.data.model.CallType
 import com.pokerlanka.pokie_talkie.data.repository.CallRepository
 import com.pokerlanka.pokie_talkie.ui.call.IncomingCallActivity
 
+import com.pokerlanka.pokie_talkie.webrtc.WebRtcManager
+
 class TelecomCallManager(
     private val context: Context,
-    private val callRepository: CallRepository
+    private val callRepository: CallRepository,
+    private val webRtcManager: WebRtcManager
 ) {
     private val tag = "TelecomCallManager"
     private val telecomManager = context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
@@ -163,6 +166,14 @@ class TelecomCallManager(
         )
         callRepository.setCallSession(session)
 
+        // Initialize WebRTC pipeline directly for immediate local media capture and Offer creation
+        try {
+            webRtcManager.startOutgoingCall(callType)
+            Log.i(tag, "Direct WebRTC outgoing media & offer pipeline initialized for $callType")
+        } catch (e: Exception) {
+            Log.e(tag, "Error starting outgoing WebRTC media pipeline: ${e.message}", e)
+        }
+
         val extras = Bundle().apply {
             putString(EXTRA_PEER_ID, recipientId)
             putString(EXTRA_PEER_NAME, recipientName)
@@ -180,7 +191,7 @@ class TelecomCallManager(
                 telecomManager.placeCall(uri, extras)
             }
         } catch (e: Exception) {
-            Log.e(tag, "Error placing outgoing call through TelecomManager: ${e.message}")
+            Log.w(tag, "Optional TelecomManager placeCall skipped or failed: ${e.message}")
         }
     }
 

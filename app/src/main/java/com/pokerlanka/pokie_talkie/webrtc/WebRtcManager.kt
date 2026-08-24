@@ -102,6 +102,11 @@ class WebRtcManager(
     fun startLocalMedia(callType: CallType) {
         val factory = peerConnectionFactory ?: return
 
+        if (localAudioTrack != null && (callType == CallType.VOICE || localVideoTrack != null)) {
+            Log.d(tag, "Local media is already running for $callType")
+            return
+        }
+
         // Audio Constraints (Echo cancellation, High pass filter, Auto gain)
         val audioConstraints = MediaConstraints().apply {
             mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "true"))
@@ -110,12 +115,14 @@ class WebRtcManager(
             mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
         }
 
-        localAudioSource = factory.createAudioSource(audioConstraints)
-        localAudioTrack = factory.createAudioTrack("ARDAMSa0", localAudioSource).apply {
-            setEnabled(true)
+        if (localAudioTrack == null) {
+            localAudioSource = factory.createAudioSource(audioConstraints)
+            localAudioTrack = factory.createAudioTrack("ARDAMSa0", localAudioSource).apply {
+                setEnabled(true)
+            }
         }
 
-        if (callType == CallType.VIDEO) {
+        if (callType == CallType.VIDEO && localVideoTrack == null) {
             try {
                 surfaceTextureHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.eglBaseContext)
                 val capturer = createCameraCapturer()
@@ -148,6 +155,10 @@ class WebRtcManager(
     }
 
     fun createPeerConnection() {
+        if (peerConnection != null) {
+            Log.d(tag, "PeerConnection already exists, skipping recreate")
+            return
+        }
         val factory = peerConnectionFactory ?: return
 
         // Configure ICE Servers with Google STUN + LAN direct
@@ -320,6 +331,15 @@ class WebRtcManager(
             override fun onCreateSuccess(p0: SessionDescription?) {}
             override fun onSetSuccess() {
                 Log.d(tag, "Set remote description success for $type")
+                // Drain any pending ICE candidates now that remote description is set
+                synchronized(pendingIceCandidates) {
+                    for (pending in pendingIceCandidates) {
+                        val candidate = IceCandidate(pending.sdpMid, pending.sdpMLineIndex, pending.candidate)
+                        peerConnection?.addIceCandidate(candidate)
+                        Log.d(tag, "Flushed buffered ICE candidate: ${pending.candidate}")
+                    }
+                    pendingIceCandidates.clear()
+                }
                 if (type == SessionDescription.Type.OFFER) {
                     createAnswer()
                 }
@@ -331,7 +351,15 @@ class WebRtcManager(
         }, sessionDescription)
     }
 
+    fun startOutgoingCall(callType: CallType) {
+        Log.i(tag, "startOutgoingCall initiated for $callType")
+        startLocalMedia(callType)
+        createPeerConnection()
+        createOffer()
+    }
+
     fun answerIncomingCall(callType: CallType) {
+        Log.i(tag, "answerIncomingCall initiated for $callType")
         startLocalMedia(callType)
         createPeerConnection()
         pendingRemoteOfferSdp?.let { sdp ->
@@ -341,12 +369,13 @@ class WebRtcManager(
     }
 
     fun addRemoteIceCandidate(model: IceCandidateModel) {
-        if (peerConnection != null) {
+        val pc = peerConnection
+        if (pc != null && pc.remoteDescription != null) {
             val candidate = IceCandidate(model.sdpMid, model.sdpMLineIndex, model.candidate)
-            peerConnection?.addIceCandidate(candidate)
-            Log.d(tag, "Added remote ICE candidate: ${model.candidate}")
+            pc.addIceCandidate(candidate)
+            Log.d(tag, "Added remote ICE candidate directly: ${model.candidate}")
         } else {
-            Log.d(tag, "Buffering remote ICE candidate as PeerConnection is not yet ready")
+            Log.d(tag, "Buffering remote ICE candidate as PeerConnection or remoteDescription is not ready yet")
             synchronized(pendingIceCandidates) {
                 pendingIceCandidates.add(model)
             }

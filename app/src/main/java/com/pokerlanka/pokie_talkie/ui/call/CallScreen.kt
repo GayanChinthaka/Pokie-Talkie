@@ -118,9 +118,9 @@ fun CallScreen(
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color.Black.copy(alpha = 0.75f),
+                            Color.Black.copy(alpha = if (remoteVideoTrack != null) 0.35f else 0.75f),
                             Color.Transparent,
-                            Color.Black.copy(alpha = 0.85f)
+                            Color.Black.copy(alpha = if (remoteVideoTrack != null) 0.45f else 0.85f)
                         )
                     )
                 )
