@@ -21,13 +21,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -282,18 +278,7 @@ fun HomeScreen(
                     items(state.contacts, key = { it.id }) { contact ->
                         ContactItemCard(
                             contact = contact,
-                            onClick = { onNavigateToChat(contact.id) },
-                            onVoiceCall = {
-                                viewModel.initiateCall(contact, CallType.VOICE)
-                                onNavigateToCall(contact.id, CallType.VOICE)
-                            },
-                            onVideoCall = {
-                                viewModel.initiateCall(contact, CallType.VIDEO)
-                                onNavigateToCall(contact.id, CallType.VIDEO)
-                            },
-                            onDelete = {
-                                viewModel.deleteContact(contact.id)
-                            }
+                            onClick = { onNavigateToChat(contact.id) }
                         )
                     }
                 }
@@ -410,9 +395,6 @@ fun HomeScreen(
 fun ContactItemCard(
     contact: Contact,
     onClick: () -> Unit,
-    onVoiceCall: () -> Unit,
-    onVideoCall: () -> Unit,
-    onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -425,7 +407,7 @@ fun ContactItemCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
+                .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             AvatarView(
@@ -453,56 +435,6 @@ fun ContactItemCard(
                             text = contact.ipAddress,
                             color = PokieTextSecondary,
                             fontSize = 11.sp
-                        )
-                    }
-                }
-            }
-
-            // Quick Call Actions
-            Row {
-                IconButton(
-                    onClick = onVoiceCall,
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(PokieEmerald.copy(alpha = 0.15f))
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Call,
-                        contentDescription = "Voice Call",
-                        tint = PokieEmerald,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                IconButton(
-                    onClick = onVideoCall,
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(PokieEmerald.copy(alpha = 0.15f))
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Videocam,
-                        contentDescription = "Video Call",
-                        tint = PokieEmerald,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                if (!contact.isOnlineLan) {
-                    Spacer(modifier = Modifier.width(4.dp))
-                    IconButton(
-                        onClick = onDelete,
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Delete Offline Device",
-                            tint = PokieTextSecondary.copy(alpha = 0.6f),
-                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }
