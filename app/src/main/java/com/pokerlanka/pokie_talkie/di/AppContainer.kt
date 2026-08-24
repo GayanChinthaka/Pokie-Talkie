@@ -61,6 +61,7 @@ class AppContainer(val context: Context) {
         FcmSignalingClient(
             contactRepository = contactRepository,
             lanSocketServer = lanSocketServer,
+            userPreferencesManager = userPreferencesManager,
             scope = applicationScope,
             myUserId = currentUserId,
             myUserName = currentUserName

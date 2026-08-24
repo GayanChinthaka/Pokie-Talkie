@@ -2,6 +2,7 @@ package com.pokerlanka.pokie_talkie.fcm
 
 import android.util.Log
 import com.google.gson.Gson
+import com.pokerlanka.pokie_talkie.data.local.UserPreferencesManager
 import com.pokerlanka.pokie_talkie.data.model.CallType
 import com.pokerlanka.pokie_talkie.data.model.IceCandidateModel
 import com.pokerlanka.pokie_talkie.data.model.MessageType
@@ -13,6 +14,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import org.webrtc.SessionDescription
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
@@ -21,6 +23,7 @@ import java.net.URL
 class FcmSignalingClient(
     private val contactRepository: ContactRepository,
     private val lanSocketServer: LanSocketServer,
+    private val userPreferencesManager: UserPreferencesManager,
     private val scope: CoroutineScope,
     private val myUserId: String,
     private val myUserName: String
@@ -93,20 +96,20 @@ class FcmSignalingClient(
             val contact = contactRepository.getContact(targetId)
             var lanSuccess = false
 
-            // Try Direct Local LAN Socket first
+            // 1. Try Direct Local LAN Socket first
             if (contact != null && contact.isOnlineLan && contact.ipAddress.isNotBlank()) {
                 Log.d(tag, "Attempting direct LAN dispatch to ${contact.name} at ${contact.ipAddress}:${contact.port}")
                 lanSuccess = lanSocketServer.sendPayload(contact.ipAddress, contact.port, payload)
             }
 
-            // Fallback to FCM high-priority cloud data message if LAN failed or peer offline on LAN
+            // 2. Always fallback to FCM High-Priority Cloud Push when LAN delivery fails or target is offline
             if (!lanSuccess) {
                 val fcmToken = contact?.fcmToken
                 if (!fcmToken.isNullOrBlank()) {
-                    Log.d(tag, "Dispatching payload via FCM Cloud fallback to token: $fcmToken")
+                    Log.d(tag, "LAN delivery unavailable for ${contact.name}. Dispatching payload via FCM Cloud fallback to token: $fcmToken")
                     sendFcmPayload(fcmToken, payload)
                 } else {
-                    Log.w(tag, "Target $targetId unreachable on LAN and has no known FCM token")
+                    Log.w(tag, "Target $targetId unreachable on LAN and has no known FCM token in database")
                 }
             }
         }
@@ -115,10 +118,61 @@ class FcmSignalingClient(
     private suspend fun sendFcmPayload(fcmToken: String, payload: SignalingPayload) {
         withContext(Dispatchers.IO) {
             try {
-                // In production, this can send to your lightweight Firebase Cloud Function or FCM endpoint
-                Log.d(tag, "FCM data payload queued for ${payload.type} to token $fcmToken")
+                val serverKey = userPreferencesManager.getFcmServerKey()
+                if (serverKey.isNullOrBlank()) {
+                    Log.w(
+                        tag,
+                        "FCM Server Key is not set in Settings. Please add your Firebase Cloud Messaging Server Key in Settings -> About & Network to enable remote push when the app is closed."
+                    )
+                    return@withContext
+                }
+
+                val url = URL("https://fcm.googleapis.com/fcm/send")
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    setRequestProperty("Content-Type", "application/json; UTF-8")
+                    setRequestProperty("Authorization", "key=$serverKey")
+                    doOutput = true
+                    connectTimeout = 8000
+                    readTimeout = 8000
+                }
+
+                val payloadJson = gson.toJson(payload)
+
+                val rootJson = JSONObject().apply {
+                    put("to", fcmToken)
+                    put("priority", "high")
+                    put("content_available", true)
+                    put("time_to_live", 120) // 2 minutes
+
+                    val dataObj = JSONObject().apply {
+                        put("payload", payloadJson)
+                        put("type", payload.type.name)
+                        put("senderId", payload.senderId)
+                        put("senderName", payload.senderName)
+                        put("callId", payload.callId ?: "")
+                        put("callType", payload.callType?.name ?: "VOICE")
+                        payload.sdp?.let { put("sdp", it) }
+                        payload.messageContent?.let { put("content", it) }
+                    }
+                    put("data", dataObj)
+                }
+
+                OutputStreamWriter(conn.outputStream, "UTF-8").use { writer ->
+                    writer.write(rootJson.toString())
+                    writer.flush()
+                }
+
+                val responseCode = conn.responseCode
+                if (responseCode in 200..299) {
+                    val response = conn.inputStream.bufferedReader().use { it.readText() }
+                    Log.i(tag, "FCM Cloud push dispatched successfully (HTTP $responseCode): $response")
+                } else {
+                    val errorResponse = conn.errorStream?.bufferedReader()?.use { it.readText() }
+                    Log.e(tag, "FCM Cloud push failed (HTTP $responseCode): $errorResponse")
+                }
             } catch (e: Exception) {
-                Log.e(tag, "Error sending FCM payload: ${e.message}")
+                Log.e(tag, "Error sending FCM payload to $fcmToken: ${e.message}", e)
             }
         }
     }
