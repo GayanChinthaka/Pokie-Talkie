@@ -20,3 +20,14 @@ val PokieCallRed = Color(0xFFEA4335)
 val PokieCallGreen = Color(0xFF00A884)
 val PokieLanActiveBadge = Color(0xFF00E676)
 val PokieCloudBadge = Color(0xFF4FC3F7)
+
+// Light Theme Palette
+val PokieLightBg = Color(0xFFF0F2F5)
+val PokieLightSurface = Color(0xFFFFFFFF)
+val PokieLightCard = Color(0xFFFFFFFF)
+val PokieLightInput = Color(0xFFE9EDEF)
+val PokieLightTextPrimary = Color(0xFF111B21)
+val PokieLightTextSecondary = Color(0xFF667781)
+val PokieLightBubbleMe = Color(0xFFD9FDD3)
+val PokieLightBubblePeer = Color(0xFFFFFFFF)
+

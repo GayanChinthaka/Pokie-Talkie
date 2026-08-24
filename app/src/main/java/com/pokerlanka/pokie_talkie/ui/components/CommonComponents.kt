@@ -37,15 +37,26 @@ import androidx.compose.ui.unit.sp
 import com.pokerlanka.pokie_talkie.data.model.Message
 import com.pokerlanka.pokie_talkie.data.model.MessageStatus
 import com.pokerlanka.pokie_talkie.data.model.MessageType
+import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkBg
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkBubbleMe
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkBubblePeer
 import com.pokerlanka.pokie_talkie.ui.theme.PokieEmerald
 import com.pokerlanka.pokie_talkie.ui.theme.PokieLanActiveBadge
+import com.pokerlanka.pokie_talkie.ui.theme.PokieLightBubbleMe
+import com.pokerlanka.pokie_talkie.ui.theme.PokieLightBubblePeer
+import com.pokerlanka.pokie_talkie.ui.theme.PokieLightTextPrimary
+import com.pokerlanka.pokie_talkie.ui.theme.PokieLightTextSecondary
 import com.pokerlanka.pokie_talkie.ui.theme.PokieTextPrimary
 import com.pokerlanka.pokie_talkie.ui.theme.PokieTextSecondary
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.runtime.remember
 
 @Composable
 fun AvatarView(
@@ -53,6 +64,7 @@ fun AvatarView(
     modifier: Modifier = Modifier,
     size: Dp = 48.dp,
     backgroundColor: Color = PokieEmerald,
+    imagePath: String? = null,
     isOnlineLan: Boolean = false
 ) {
     val initials = name.split(" ")
@@ -60,6 +72,15 @@ fun AvatarView(
         .take(2)
         .joinToString("")
         .uppercase()
+
+    val bitmap = remember(imagePath) {
+        if (!imagePath.isNullOrBlank()) {
+            val file = java.io.File(imagePath)
+            if (file.exists()) {
+                android.graphics.BitmapFactory.decodeFile(file.absolutePath)
+            } else null
+        } else null
+    }
 
     Box(
         modifier = modifier.size(size),
@@ -72,22 +93,33 @@ fun AvatarView(
                 .background(backgroundColor),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = initials.ifEmpty { "P" },
-                color = Color.White,
-                fontSize = (size.value * 0.4).sp,
-                fontWeight = FontWeight.Bold
-            )
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(CircleShape)
+                )
+            } else {
+                Text(
+                    text = initials.ifEmpty { "P" },
+                    color = Color.White,
+                    fontSize = (size.value * 0.4).sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
 
         if (isOnlineLan) {
             Box(
                 modifier = Modifier
-                    .size(size * 0.32f)
+                    .size(size * 0.30f)
                     .align(Alignment.BottomEnd)
                     .clip(CircleShape)
-                    .background(PokieLanActiveBadge)
-                    .border(2.dp, Color(0xFF111B21), CircleShape)
+                    .background(PokieEmerald)
+                    .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
             )
         }
     }
@@ -98,10 +130,13 @@ fun LanStatusBadge(
     isOnlineLan: Boolean,
     modifier: Modifier = Modifier
 ) {
+    val badgeBg = if (isOnlineLan) PokieEmerald.copy(alpha = 0.15f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f)
+    val badgeContentColor = if (isOnlineLan) PokieEmerald else MaterialTheme.colorScheme.onSurfaceVariant
+
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(12.dp),
-        color = if (isOnlineLan) Color(0xFF00E676).copy(alpha = 0.15f) else Color(0xFF8696A0).copy(alpha = 0.15f)
+        color = badgeBg
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -110,13 +145,13 @@ fun LanStatusBadge(
             Icon(
                 imageVector = if (isOnlineLan) Icons.Default.Wifi else Icons.Default.Cloud,
                 contentDescription = null,
-                tint = if (isOnlineLan) PokieLanActiveBadge else PokieTextSecondary,
+                tint = badgeContentColor,
                 modifier = Modifier.size(13.dp)
             )
             Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = if (isOnlineLan) "LAN Active" else "Cloud (FCM)",
-                color = if (isOnlineLan) PokieLanActiveBadge else PokieTextSecondary,
+                color = badgeContentColor,
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.SemiBold
             )
@@ -167,7 +202,23 @@ fun ChatBubble(
     modifier: Modifier = Modifier
 ) {
     val isMe = message.isFromMe
-    val bubbleColor = if (isMe) PokieDarkBubbleMe else PokieDarkBubblePeer
+    val isDark = MaterialTheme.colorScheme.background == PokieDarkBg
+    val bubbleColor = if (isMe) {
+        if (isDark) PokieDarkBubbleMe else PokieLightBubbleMe
+    } else {
+        if (isDark) PokieDarkBubblePeer else PokieLightBubblePeer
+    }
+    val contentTextColor = if (isMe) {
+        if (isDark) PokieTextPrimary else PokieLightTextPrimary
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+    val timeTextColor = if (isMe) {
+        if (isDark) PokieTextSecondary else PokieLightTextSecondary
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
     val timeFormatter = SimpleDateFormat("HH:mm", Locale.getDefault())
     val formattedTime = timeFormatter.format(Date(message.timestamp))
 
@@ -208,7 +259,7 @@ fun ChatBubble(
                     else -> {
                         Text(
                             text = message.content,
-                            color = PokieTextPrimary,
+                            color = contentTextColor,
                             style = MaterialTheme.typography.bodyLarge
                         )
                     }
@@ -220,7 +271,7 @@ fun ChatBubble(
                 ) {
                     Text(
                         text = formattedTime,
-                        color = PokieTextSecondary,
+                        color = timeTextColor,
                         fontSize = 11.sp
                     )
 
@@ -230,7 +281,7 @@ fun ChatBubble(
                             MessageStatus.SENDING -> {
                                 Text(
                                     text = "...",
-                                    color = PokieTextSecondary,
+                                    color = timeTextColor,
                                     fontSize = 10.sp
                                 )
                             }
@@ -238,7 +289,7 @@ fun ChatBubble(
                                 Icon(
                                     imageVector = Icons.Default.Check,
                                     contentDescription = "Sent via LAN",
-                                    tint = PokieLanActiveBadge,
+                                    tint = PokieEmerald,
                                     modifier = Modifier.size(13.dp)
                                 )
                             }
@@ -246,7 +297,7 @@ fun ChatBubble(
                                 Icon(
                                     imageVector = Icons.Default.Check,
                                     contentDescription = "Sent via FCM",
-                                    tint = PokieTextSecondary,
+                                    tint = timeTextColor,
                                     modifier = Modifier.size(13.dp)
                                 )
                             }
@@ -254,7 +305,7 @@ fun ChatBubble(
                                 Icon(
                                     imageVector = Icons.Default.DoneAll,
                                     contentDescription = "Delivered",
-                                    tint = if (message.status == MessageStatus.READ) Color(0xFF53BDEB) else PokieTextSecondary,
+                                    tint = if (message.status == MessageStatus.READ) Color(0xFF53BDEB) else timeTextColor,
                                     modifier = Modifier.size(15.dp)
                                 )
                             }

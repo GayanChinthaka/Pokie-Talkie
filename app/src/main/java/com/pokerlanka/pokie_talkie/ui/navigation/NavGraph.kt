@@ -21,8 +21,12 @@ import com.pokerlanka.pokie_talkie.ui.dev.DevPreviewHubScreen
 import com.pokerlanka.pokie_talkie.ui.home.HomeScreen
 import com.pokerlanka.pokie_talkie.ui.home.HomeViewModel
 
+import com.pokerlanka.pokie_talkie.ui.settings.SettingsScreen
+import com.pokerlanka.pokie_talkie.ui.settings.SettingsViewModel
+
 sealed class Screen(val route: String) {
     object Home : Screen("home")
+    object Settings : Screen("settings")
     object Chat : Screen("chat/{peerId}") {
         fun createRoute(peerId: String) = "chat/$peerId"
     }
@@ -60,9 +64,23 @@ fun PokieNavGraph(
                 onNavigateToCall = { peerId, callType ->
                     navController.navigate(Screen.Call.createRoute(peerId, callType))
                 },
+                onNavigateToSettings = {
+                    navController.navigate(Screen.Settings.route)
+                },
                 onNavigateToDevHub = {
                     navController.navigate(Screen.DevHub.route)
                 }
+            )
+        }
+
+        composable(Screen.Settings.route) {
+            val settingsViewModel: SettingsViewModel = viewModel(
+                factory = SettingsViewModel.provideFactory(appContainer)
+            )
+
+            SettingsScreen(
+                viewModel = settingsViewModel,
+                onBack = { navController.popBackStack() }
             )
         }
 

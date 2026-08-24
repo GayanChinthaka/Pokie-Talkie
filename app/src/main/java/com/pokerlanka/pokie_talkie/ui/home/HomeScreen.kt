@@ -22,8 +22,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -31,6 +31,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -59,11 +60,9 @@ import com.pokerlanka.pokie_talkie.data.model.CallType
 import com.pokerlanka.pokie_talkie.data.model.Contact
 import com.pokerlanka.pokie_talkie.ui.components.AvatarView
 import com.pokerlanka.pokie_talkie.ui.components.LanStatusBadge
-import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkBg
+import com.pokerlanka.pokie_talkie.ui.dev.DevConfig
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkCard
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkInput
-import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkSurface
-import com.pokerlanka.pokie_talkie.ui.dev.DevConfig
 import com.pokerlanka.pokie_talkie.ui.theme.PokieEmerald
 import com.pokerlanka.pokie_talkie.ui.theme.PokieLanActiveBadge
 import com.pokerlanka.pokie_talkie.ui.theme.PokieTextPrimary
@@ -74,7 +73,8 @@ import com.pokerlanka.pokie_talkie.ui.theme.PokieTextSecondary
 fun HomeScreen(
     viewModel: HomeViewModel,
     onNavigateToChat: (String) -> Unit,
-    onNavigateToCall: (String, CallType) -> Unit,
+    onNavigateToCall: (String, CallType) -> Unit = { _, _ -> },
+    onNavigateToSettings: () -> Unit = {},
     onNavigateToDevHub: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -92,7 +92,7 @@ fun HomeScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = "Pokie Talkie",
-                                color = PokieTextPrimary,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 fontWeight = FontWeight.Bold,
                                 style = MaterialTheme.typography.titleLarge
                             )
@@ -123,7 +123,7 @@ fun HomeScreen(
                         }
                         Text(
                             text = "You: ${state.myDeviceName} (${state.myUserId})",
-                            color = PokieTextSecondary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelSmall
                         )
                     }
@@ -151,27 +151,36 @@ fun HomeScreen(
                         }
                     }
 
-                    IconButton(onClick = viewModel::openEditProfileDialog) {
+                    IconButton(onClick = onNavigateToSettings) {
                         Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = "Edit Profile Name",
-                            tint = PokieEmerald
-                        )
-                    }
-                    IconButton(onClick = viewModel::openAddContactDialog) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "Add Family Member",
-                            tint = PokieEmerald
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Settings",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(24.dp)
                         )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = PokieDarkSurface
+                    containerColor = MaterialTheme.colorScheme.surface
                 )
             )
         },
-        containerColor = PokieDarkBg,
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = viewModel::openAddContactDialog,
+                containerColor = PokieEmerald,
+                contentColor = Color.White,
+                shape = CircleShape,
+                modifier = Modifier.padding(bottom = 12.dp, end = 4.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "Add Family Member / Device",
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.background,
         modifier = modifier
     ) { innerPadding ->
         Column(
@@ -184,13 +193,13 @@ fun HomeScreen(
                 value = state.searchQuery,
                 onValueChange = viewModel::onSearchQueryChanged,
                 placeholder = {
-                    Text("Search family members...", color = PokieTextSecondary, fontSize = 14.sp)
+                    Text("Search family members...", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
                 },
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = "Search",
-                        tint = PokieTextSecondary,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp)
                     )
                 },
@@ -200,7 +209,7 @@ fun HomeScreen(
                             Icon(
                                 imageVector = Icons.Default.Clear,
                                 contentDescription = "Clear",
-                                tint = PokieTextSecondary,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -209,12 +218,12 @@ fun HomeScreen(
                 singleLine = true,
                 shape = RoundedCornerShape(24.dp),
                 colors = TextFieldDefaults.colors(
-                    focusedContainerColor = PokieDarkInput,
-                    unfocusedContainerColor = PokieDarkInput,
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                     focusedIndicatorColor = Color.Transparent,
                     unfocusedIndicatorColor = Color.Transparent,
-                    focusedTextColor = PokieTextPrimary,
-                    unfocusedTextColor = PokieTextPrimary
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -247,14 +256,14 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             text = "Scanning Local WiFi Subnet...",
-                            color = PokieTextPrimary,
+                            color = MaterialTheme.colorScheme.onBackground,
                             fontWeight = FontWeight.SemiBold,
                             style = MaterialTheme.typography.titleMedium
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = "Open Pokie Talkie on other family phones connected to the same WiFi. They will appear here automatically in real time!",
-                            color = PokieTextSecondary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 13.sp,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
@@ -325,7 +334,7 @@ fun HomeScreen(
                     Text("Cancel", color = PokieTextSecondary)
                 }
             },
-            containerColor = PokieDarkSurface
+            containerColor = MaterialTheme.colorScheme.surface
         )
     }
 
@@ -386,7 +395,7 @@ fun HomeScreen(
                     Text("Cancel", color = PokieTextSecondary)
                 }
             },
-            containerColor = PokieDarkSurface
+            containerColor = MaterialTheme.colorScheme.surface
         )
     }
 }
@@ -402,7 +411,7 @@ fun ContactItemCard(
             .fillMaxWidth()
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = PokieDarkCard)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Row(
             modifier = Modifier
@@ -422,7 +431,7 @@ fun ContactItemCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = contact.name,
-                    color = PokieTextPrimary,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.SemiBold,
                     style = MaterialTheme.typography.titleMedium
                 )
@@ -433,7 +442,7 @@ fun ContactItemCard(
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = contact.ipAddress,
-                            color = PokieTextSecondary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 11.sp
                         )
                     }

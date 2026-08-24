@@ -96,7 +96,7 @@ fun ChatScreen(
                         Column {
                             Text(
                                 text = contact?.name ?: "Family Member",
-                                color = PokieTextPrimary,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 fontWeight = FontWeight.SemiBold,
                                 style = MaterialTheme.typography.titleMedium
                             )
@@ -109,7 +109,7 @@ fun ChatScreen(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
-                            tint = PokieTextPrimary
+                            tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 },
@@ -136,10 +136,10 @@ fun ChatScreen(
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = PokieDarkSurface)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         },
-        containerColor = PokieDarkBg,
+        containerColor = MaterialTheme.colorScheme.background,
         modifier = modifier
     ) { innerPadding ->
         Column(
@@ -164,7 +164,7 @@ fun ChatScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(PokieDarkSurface)
+                    .background(MaterialTheme.colorScheme.surface)
                     .padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -174,7 +174,7 @@ fun ChatScreen(
                     Icon(
                         imageVector = Icons.Default.EmojiEmotions,
                         contentDescription = "Emojis & Stickers",
-                        tint = if (isStickerPickerOpen) PokieEmerald else PokieTextSecondary
+                        tint = if (isStickerPickerOpen) PokieEmerald else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
@@ -185,16 +185,16 @@ fun ChatScreen(
                         viewModel.onInputTextChanged(it)
                     },
                     placeholder = {
-                        Text("Type a family message...", color = PokieTextSecondary, fontSize = 14.sp)
+                        Text("Type a family message...", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
                     },
                     shape = RoundedCornerShape(24.dp),
                     colors = TextFieldDefaults.colors(
-                        focusedContainerColor = PokieDarkInput,
-                        unfocusedContainerColor = PokieDarkInput,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                         focusedIndicatorColor = Color.Transparent,
                         unfocusedIndicatorColor = Color.Transparent,
-                        focusedTextColor = PokieTextPrimary,
-                        unfocusedTextColor = PokieTextPrimary
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                     ),
                     maxLines = 4,
                     modifier = Modifier
