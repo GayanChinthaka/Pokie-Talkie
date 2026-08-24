@@ -146,6 +146,7 @@ fun PokieNavGraph(
                     peerName = peerName,
                     initialCallType = callType,
                     initialCallState = callState,
+                    webRtcManager = appContainer.webRtcManager,
                     onBack = { navController.popBackStack() }
                 )
             }

@@ -116,18 +116,30 @@ class WebRtcManager(
         }
 
         if (callType == CallType.VIDEO) {
-            surfaceTextureHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.eglBaseContext)
-            val capturer = createCameraCapturer()
-            if (capturer != null) {
-                videoCapturer = capturer
-                localVideoSource = factory.createVideoSource(capturer.isScreencast)
-                capturer.initialize(surfaceTextureHelper, context, localVideoSource!!.capturerObserver)
-                capturer.startCapture(1280, 720, 30)
+            try {
+                surfaceTextureHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.eglBaseContext)
+                val capturer = createCameraCapturer()
+                if (capturer != null) {
+                    videoCapturer = capturer
+                    localVideoSource = factory.createVideoSource(capturer.isScreencast)
+                    capturer.initialize(surfaceTextureHelper, context.applicationContext, localVideoSource!!.capturerObserver)
+                    try {
+                        capturer.startCapture(1280, 720, 30)
+                    } catch (e: Exception) {
+                        Log.w(tag, "Failed 720p capture, falling back to 640x480: ${e.message}")
+                        capturer.startCapture(640, 480, 30)
+                    }
 
-                localVideoTrack = factory.createVideoTrack("ARDAMSv0", localVideoSource).apply {
-                    setEnabled(true)
+                    localVideoTrack = factory.createVideoTrack("ARDAMSv0", localVideoSource).apply {
+                        setEnabled(true)
+                    }
+                    _localVideoTrackFlow.value = localVideoTrack
+                    Log.i(tag, "Local video track created and started successfully")
+                } else {
+                    Log.w(tag, "Camera capturer returned null (check CAMERA permission or camera availability)")
                 }
-                _localVideoTrackFlow.value = localVideoTrack
+            } catch (e: Exception) {
+                Log.e(tag, "Error setting up local video track: ${e.message}", e)
             }
         }
 

@@ -66,11 +66,17 @@ import com.pokerlanka.pokie_talkie.ui.theme.PokieTextSecondary
 import kotlinx.coroutines.delay
 import java.util.Locale
 
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
+import com.pokerlanka.pokie_talkie.webrtc.WebRtcManager
+import com.pokerlanka.pokie_talkie.webrtc.WebRtcVideoView
+
 @Composable
 fun DevMockCallScreen(
     peerName: String = "Amma (Mom)",
     initialCallType: CallType = CallType.VOICE,
     initialCallState: CallState = CallState.CONNECTED,
+    webRtcManager: WebRtcManager? = null,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -85,6 +91,20 @@ fun DevMockCallScreen(
     val isVideo = callType == CallType.VIDEO
     val isConnected = callState == CallState.CONNECTED
     val isRingingIncoming = callState == CallState.RINGING_INCOMING
+
+    val localVideoTrack = webRtcManager?.localVideoTrackFlow?.collectAsState()?.value
+
+    // Start real camera preview when in Video mode for live testing
+    DisposableEffect(isVideo, webRtcManager) {
+        if (isVideo && webRtcManager != null) {
+            webRtcManager.startLocalMedia(CallType.VIDEO)
+        }
+        onDispose {
+            if (webRtcManager != null) {
+                webRtcManager.endCall()
+            }
+        }
+    }
 
     // Active duration timer
     LaunchedEffect(callState) {
@@ -108,35 +128,44 @@ fun DevMockCallScreen(
             .fillMaxSize()
             .background(PokieDarkBg)
     ) {
-        // Video Call Background simulation
+        // Video Call Background simulation or Live Loopback
         if (isVideo) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.linearGradient(
-                            colors = listOf(
-                                Color(0xFF1E293B),
-                                Color(0xFF0F172A),
-                                Color(0xFF022C22)
+            if (localVideoTrack != null && webRtcManager != null) {
+                WebRtcVideoView(
+                    videoTrack = localVideoTrack,
+                    eglBaseContext = webRtcManager.eglBase.eglBaseContext,
+                    modifier = Modifier.fillMaxSize(),
+                    isMirror = false
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(
+                                    Color(0xFF1E293B),
+                                    Color(0xFF0F172A),
+                                    Color(0xFF022C22)
+                                )
                             )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Default.Videocam,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.2f),
+                            modifier = Modifier.size(96.dp)
                         )
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Default.Videocam,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.2f),
-                        modifier = Modifier.size(96.dp)
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = "Remote Video Feed Simulation",
-                        color = Color.White.copy(alpha = 0.4f),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "Remote Video Feed (Live on peer connection)",
+                            color = Color.White.copy(alpha = 0.4f),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
                 }
             }
         }
@@ -333,13 +362,19 @@ fun DevMockCallScreen(
                                 label = if (isVideoEnabled) "Video Off" else "Video On",
                                 backgroundColor = if (!isVideoEnabled) Color.White else Color.White.copy(alpha = 0.2f),
                                 iconTint = if (!isVideoEnabled) Color.Black else Color.White,
-                                onClick = { isVideoEnabled = !isVideoEnabled }
+                                onClick = {
+                                    val enabled = webRtcManager?.toggleVideo() ?: !isVideoEnabled
+                                    isVideoEnabled = enabled
+                                }
                             )
 
                             CallControlButton(
                                 icon = Icons.Default.Cameraswitch,
                                 label = if (isFrontCamera) "Front" else "Back",
-                                onClick = { isFrontCamera = !isFrontCamera }
+                                onClick = {
+                                    webRtcManager?.switchCamera()
+                                    isFrontCamera = !isFrontCamera
+                                }
                             )
                         }
 
@@ -367,23 +402,35 @@ fun DevMockCallScreen(
                     .clip(RoundedCornerShape(16.dp))
                     .background(Color(0xFF1E293B))
                     .border(2.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
-                    .clickable { isFrontCamera = !isFrontCamera },
+                    .clickable {
+                        webRtcManager?.switchCamera()
+                        isFrontCamera = !isFrontCamera
+                    },
                 contentAlignment = Alignment.Center
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Default.Videocam,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.6f),
-                        modifier = Modifier.size(28.dp)
+                if (localVideoTrack != null && webRtcManager != null) {
+                    WebRtcVideoView(
+                        videoTrack = localVideoTrack,
+                        eglBaseContext = webRtcManager.eglBase.eglBaseContext,
+                        modifier = Modifier.fillMaxSize(),
+                        isMirror = isFrontCamera
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = if (isFrontCamera) "Self (Front)" else "Self (Back)",
-                        color = Color.White.copy(alpha = 0.8f),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                } else {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Default.Videocam,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.6f),
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = if (isFrontCamera) "Self (Front)" else "Self (Back)",
+                            color = Color.White.copy(alpha = 0.8f),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
 
                 Icon(
