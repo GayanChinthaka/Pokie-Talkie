@@ -77,6 +77,12 @@ class ChatRepository(
         return unreadIds
     }
 
+    fun getUnreadCounts(myId: String): Flow<Map<String, Int>> {
+        return messageDao.getUnreadCountsBySender(myId).map { list ->
+            list.associate { it.senderId to it.count }
+        }
+    }
+
     suspend fun clearChat(peerId: String, myId: String) {
         messageDao.clearConversation(peerId, myId)
     }

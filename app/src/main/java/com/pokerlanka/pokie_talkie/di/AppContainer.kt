@@ -292,6 +292,18 @@ class AppContainer(val context: Context) {
                 val initialStatus = if (isChatCurrentlyOpen) MessageStatus.READ else MessageStatus.DELIVERED
 
                 applicationScope.launch {
+                    val existingContact = contactRepository.getContact(payload.senderId)
+                    if (existingContact == null) {
+                        contactRepository.saveOrUpdateContact(
+                            Contact(
+                                id = payload.senderId,
+                                name = payload.senderName.ifBlank { "Family Member" },
+                                isOnlineLan = true,
+                                lastSeenTimestamp = System.currentTimeMillis()
+                            )
+                        )
+                    }
+
                     chatRepository.saveMessage(
                         id = messageId,
                         senderId = payload.senderId,

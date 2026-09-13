@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -285,8 +286,10 @@ fun HomeScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(state.contacts, key = { it.id }) { contact ->
+                        val unreadCount = state.unreadCounts[contact.id] ?: 0
                         ContactItemCard(
                             contact = contact,
+                            unreadCount = unreadCount,
                             onClick = { onNavigateToChat(contact.id) }
                         )
                     }
@@ -403,6 +406,7 @@ fun HomeScreen(
 @Composable
 fun ContactItemCard(
     contact: Contact,
+    unreadCount: Int = 0,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -444,6 +448,27 @@ fun ContactItemCard(
                             text = contact.ipAddress,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 11.sp
+                        )
+                    }
+                }
+            }
+
+            if (unreadCount > 0) {
+                Spacer(modifier = Modifier.width(10.dp))
+                Surface(
+                    shape = CircleShape,
+                    color = PokieEmerald,
+                    modifier = Modifier.defaultMinSize(minWidth = 24.dp, minHeight = 24.dp)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            text = if (unreadCount > 99) "99+" else unreadCount.toString(),
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }

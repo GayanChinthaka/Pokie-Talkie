@@ -21,6 +21,7 @@ import com.pokerlanka.pokie_talkie.di.AppContainer
 
 data class HomeUiState(
     val contacts: List<Contact> = emptyList(),
+    val unreadCounts: Map<String, Int> = emptyMap(),
     val searchQuery: String = "",
     val myDeviceName: String = "",
     val myUserId: String = "",
@@ -34,6 +35,7 @@ class HomeViewModel(
 ) : ViewModel() {
 
     private val contactRepository = appContainer.contactRepository
+    private val chatRepository = appContainer.chatRepository
     private val telecomCallManager = appContainer.telecomCallManager
     private val userPrefs = appContainer.userPreferencesManager
 
@@ -48,11 +50,11 @@ class HomeViewModel(
 
     val uiState: StateFlow<HomeUiState> = combine(
         contactRepository.getContacts(),
+        chatRepository.getUnreadCounts(userPrefs.userId),
         _searchQuery,
         userPrefs.userNameFlow,
-        _showEditProfileDialog,
-        _showAddContactDialog
-    ) { contacts, query, userName, showEditProfile, showAddContact ->
+        combine(_showEditProfileDialog, _showAddContactDialog) { edit, add -> Pair(edit, add) }
+    ) { contacts, unreadMap, query, userName, dialogs ->
         val filtered = if (query.isBlank()) {
             contacts
         } else {
@@ -60,12 +62,13 @@ class HomeViewModel(
         }
         HomeUiState(
             contacts = filtered,
+            unreadCounts = unreadMap,
             searchQuery = query,
             myDeviceName = userName,
             myUserId = userPrefs.userId,
             isScanningLan = true,
-            showEditProfileDialog = showEditProfile,
-            showAddContactDialog = showAddContact
+            showEditProfileDialog = dialogs.first,
+            showAddContactDialog = dialogs.second
         )
     }.stateIn(
         scope = viewModelScope,

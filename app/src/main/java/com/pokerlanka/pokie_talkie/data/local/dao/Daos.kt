@@ -43,9 +43,17 @@ interface MessageDao {
     @Query("UPDATE messages SET status = :newStatus WHERE senderId = :peerId AND receiverId = :myId AND status != 'READ'")
     suspend fun markIncomingMessagesStatus(peerId: String, myId: String, newStatus: MessageStatus)
 
+    @Query("SELECT senderId, COUNT(*) as count FROM messages WHERE receiverId = :myId AND status != 'READ' GROUP BY senderId")
+    fun getUnreadCountsBySender(myId: String): Flow<List<SenderUnreadCount>>
+
     @Query("DELETE FROM messages WHERE (senderId = :peerId AND receiverId = :myId) OR (senderId = :myId AND receiverId = :peerId)")
     suspend fun clearConversation(peerId: String, myId: String)
 }
+
+data class SenderUnreadCount(
+    val senderId: String,
+    val count: Int
+)
 
 @Dao
 interface ContactDao {
