@@ -16,9 +16,11 @@ import com.pokerlanka.pokie_talkie.data.local.PokieDatabase
 import com.pokerlanka.pokie_talkie.data.model.CallSession
 import com.pokerlanka.pokie_talkie.data.model.CallState
 import com.pokerlanka.pokie_talkie.data.model.CallType
+import com.pokerlanka.pokie_talkie.data.model.MessageStatus
 import com.pokerlanka.pokie_talkie.data.model.MessageType
 import com.pokerlanka.pokie_talkie.data.model.SignalingType
 import com.pokerlanka.pokie_talkie.data.model.SignalingPayload
+import java.util.UUID
 import com.pokerlanka.pokie_talkie.data.repository.CallRepository
 import com.pokerlanka.pokie_talkie.data.repository.ChatRepository
 import com.pokerlanka.pokie_talkie.data.repository.ContactRepository
@@ -89,6 +91,26 @@ class AppContainer(val context: Context) {
 
     val webRtcManager by lazy { WebRtcManager(context, applicationScope) }
     val telecomCallManager by lazy { TelecomCallManager(context, callRepository, webRtcManager) }
+
+    @Volatile
+    var activeChatPeerId: String? = null
+
+    fun onChatOpened(peerId: String) {
+        activeChatPeerId = peerId
+        applicationScope.launch {
+            val unreadIds = chatRepository.markIncomingAsRead(peerId, currentUserId)
+            if (unreadIds.isNotEmpty()) {
+                Log.d(tag, "Marked ${unreadIds.size} messages as READ for peer $peerId, sending read receipt")
+                fcmSignalingClient.sendReadReceipt(peerId, unreadIds)
+            }
+        }
+    }
+
+    fun onChatClosed(peerId: String) {
+        if (activeChatPeerId == peerId) {
+            activeChatPeerId = null
+        }
+    }
 
     fun updateMyProfileName(newName: String) {
         userPreferencesManager.setUserName(newName)
@@ -265,16 +287,52 @@ class AppContainer(val context: Context) {
             SignalingType.CHAT_MESSAGE -> {
                 val content = payload.messageContent ?: return
                 val type = payload.messageType ?: MessageType.TEXT
+                val messageId = payload.messageId ?: UUID.randomUUID().toString()
+                val isChatCurrentlyOpen = activeChatPeerId == payload.senderId
+                val initialStatus = if (isChatCurrentlyOpen) MessageStatus.READ else MessageStatus.DELIVERED
+
                 applicationScope.launch {
                     chatRepository.saveMessage(
+                        id = messageId,
                         senderId = payload.senderId,
                         receiverId = currentUserId,
                         content = content,
                         type = type,
-                        isFromMe = false
+                        isFromMe = false,
+                        status = initialStatus
                     )
+
+                    // 1. Send Delivery Receipt immediately back to sender
+                    fcmSignalingClient.sendDeliveryReceipt(payload.senderId, messageId)
+
+                    // 2. If user currently has this chat screen open, also send Read Receipt immediately!
+                    if (isChatCurrentlyOpen) {
+                        fcmSignalingClient.sendReadReceipt(payload.senderId, listOf(messageId))
+                    }
                 }
-                showChatMessageNotification(payload.senderName, content)
+
+                // Only show system notification if user is NOT currently inside the chat screen with this contact
+                if (!isChatCurrentlyOpen) {
+                    showChatMessageNotification(payload.senderName, content)
+                }
+            }
+
+            SignalingType.DELIVERY_RECEIPT -> {
+                val msgId = payload.messageId ?: return
+                Log.d(tag, "Received DELIVERY_RECEIPT for message $msgId from ${payload.senderName}")
+                applicationScope.launch {
+                    chatRepository.updateMessageStatusIfNotRead(msgId, MessageStatus.DELIVERED)
+                }
+            }
+
+            SignalingType.READ_RECEIPT -> {
+                val ids = payload.messageIds ?: listOfNotNull(payload.messageId)
+                if (ids.isNotEmpty()) {
+                    Log.d(tag, "Received READ_RECEIPT for messages $ids from ${payload.senderName}")
+                    applicationScope.launch {
+                        chatRepository.updateMessagesStatus(ids, MessageStatus.READ)
+                    }
+                }
             }
 
             SignalingType.PING -> {}

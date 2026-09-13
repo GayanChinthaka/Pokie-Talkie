@@ -81,14 +81,38 @@ class FcmSignalingClient(
         dispatchPayload(targetId, payload)
     }
 
-    fun sendChatMessage(targetId: String, content: String, type: MessageType) {
+    fun sendChatMessage(targetId: String, content: String, type: MessageType, messageId: String? = null) {
         val payload = SignalingPayload(
             type = SignalingType.CHAT_MESSAGE,
             senderId = myUserId,
             senderName = myUserName,
             targetId = targetId,
+            messageId = messageId,
             messageContent = content,
             messageType = type
+        )
+        dispatchPayload(targetId, payload)
+    }
+
+    fun sendDeliveryReceipt(targetId: String, messageId: String) {
+        val payload = SignalingPayload(
+            type = SignalingType.DELIVERY_RECEIPT,
+            senderId = myUserId,
+            senderName = myUserName,
+            targetId = targetId,
+            messageId = messageId
+        )
+        dispatchPayload(targetId, payload)
+    }
+
+    fun sendReadReceipt(targetId: String, messageIds: List<String>) {
+        if (messageIds.isEmpty()) return
+        val payload = SignalingPayload(
+            type = SignalingType.READ_RECEIPT,
+            senderId = myUserId,
+            senderName = myUserName,
+            targetId = targetId,
+            messageIds = messageIds
         )
         dispatchPayload(targetId, payload)
     }

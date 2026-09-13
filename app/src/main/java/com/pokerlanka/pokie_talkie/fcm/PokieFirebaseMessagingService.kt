@@ -16,9 +16,11 @@ import com.pokerlanka.pokie_talkie.PokieApp
 import com.pokerlanka.pokie_talkie.R
 import com.pokerlanka.pokie_talkie.data.model.CallState
 import com.pokerlanka.pokie_talkie.data.model.CallType
+import com.pokerlanka.pokie_talkie.data.model.MessageStatus
 import com.pokerlanka.pokie_talkie.data.model.MessageType
 import com.pokerlanka.pokie_talkie.data.model.SignalingPayload
 import com.pokerlanka.pokie_talkie.data.model.SignalingType
+import java.util.UUID
 import com.pokerlanka.pokie_talkie.telecom.PokieConnectionService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -142,17 +144,45 @@ class PokieFirebaseMessagingService : FirebaseMessagingService() {
                 Log.i(tag, "Received CHAT MESSAGE from ${payload.senderName}")
                 val content = payload.messageContent ?: return
                 val msgType = payload.messageType ?: MessageType.TEXT
+                val messageId = payload.messageId ?: UUID.randomUUID().toString()
+                val isChatCurrentlyOpen = container.activeChatPeerId == payload.senderId
+                val initialStatus = if (isChatCurrentlyOpen) MessageStatus.READ else MessageStatus.DELIVERED
 
                 scope.launch {
                     container.chatRepository.saveMessage(
+                        id = messageId,
                         senderId = payload.senderId,
                         receiverId = container.currentUserId,
                         content = content,
                         type = msgType,
-                        isFromMe = false
+                        isFromMe = false,
+                        status = initialStatus
                     )
+
+                    container.fcmSignalingClient.sendDeliveryReceipt(payload.senderId, messageId)
+                    if (isChatCurrentlyOpen) {
+                        container.fcmSignalingClient.sendReadReceipt(payload.senderId, listOf(messageId))
+                    }
                 }
-                showChatMessageNotification(payload.senderName, content)
+                if (!isChatCurrentlyOpen) {
+                    showChatMessageNotification(payload.senderName, content)
+                }
+            }
+
+            SignalingType.DELIVERY_RECEIPT -> {
+                val msgId = payload.messageId ?: return
+                scope.launch {
+                    container.chatRepository.updateMessageStatusIfNotRead(msgId, MessageStatus.DELIVERED)
+                }
+            }
+
+            SignalingType.READ_RECEIPT -> {
+                val ids = payload.messageIds ?: listOfNotNull(payload.messageId)
+                if (ids.isNotEmpty()) {
+                    scope.launch {
+                        container.chatRepository.updateMessagesStatus(ids, MessageStatus.READ)
+                    }
+                }
             }
 
             SignalingType.PING -> {

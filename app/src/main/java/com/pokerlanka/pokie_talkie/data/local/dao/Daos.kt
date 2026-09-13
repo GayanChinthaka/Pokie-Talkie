@@ -31,6 +31,18 @@ interface MessageDao {
     @Query("UPDATE messages SET status = :newStatus WHERE id = :messageId")
     suspend fun updateMessageStatus(messageId: String, newStatus: MessageStatus)
 
+    @Query("UPDATE messages SET status = :newStatus WHERE id = :messageId AND status != 'READ'")
+    suspend fun updateMessageStatusIfNotRead(messageId: String, newStatus: MessageStatus)
+
+    @Query("UPDATE messages SET status = :newStatus WHERE id IN (:messageIds)")
+    suspend fun updateMessagesStatus(messageIds: List<String>, newStatus: MessageStatus)
+
+    @Query("SELECT id FROM messages WHERE senderId = :peerId AND receiverId = :myId AND status != 'READ'")
+    suspend fun getUnreadIncomingMessageIds(peerId: String, myId: String): List<String>
+
+    @Query("UPDATE messages SET status = :newStatus WHERE senderId = :peerId AND receiverId = :myId AND status != 'READ'")
+    suspend fun markIncomingMessagesStatus(peerId: String, myId: String, newStatus: MessageStatus)
+
     @Query("DELETE FROM messages WHERE (senderId = :peerId AND receiverId = :myId) OR (senderId = :myId AND receiverId = :peerId)")
     suspend fun clearConversation(peerId: String, myId: String)
 }

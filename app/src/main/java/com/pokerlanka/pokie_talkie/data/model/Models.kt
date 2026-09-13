@@ -45,6 +45,10 @@ enum class SignalingType {
     HANGUP,
     @SerializedName("chat_message")
     CHAT_MESSAGE,
+    @SerializedName("delivery_receipt")
+    DELIVERY_RECEIPT,
+    @SerializedName("read_receipt")
+    READ_RECEIPT,
     @SerializedName("ping")
     PING
 }
@@ -98,6 +102,10 @@ data class SignalingPayload(
     val sdp: String? = null,
     @SerializedName("iceCandidate")
     val iceCandidate: IceCandidateModel? = null,
+    @SerializedName("messageId")
+    val messageId: String? = null,
+    @SerializedName("messageIds")
+    val messageIds: List<String>? = null,
     @SerializedName("messageContent")
     val messageContent: String? = null,
     @SerializedName("messageType")

@@ -35,6 +35,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -65,8 +66,17 @@ fun ChatScreen(
     viewModel: ChatViewModel,
     onBack: () -> Unit,
     onNavigateToCall: (String, CallType) -> Unit,
+    onChatOpened: () -> Unit = {},
+    onChatClosed: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    DisposableEffect(Unit) {
+        onChatOpened()
+        onDispose {
+            onChatClosed()
+        }
+    }
+
     val messages by viewModel.messages.collectAsState()
     val contact by viewModel.contact.collectAsState()
     val isStickerPickerOpen by viewModel.isStickerPickerOpen.collectAsState()

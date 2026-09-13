@@ -105,7 +105,9 @@ fun PokieNavGraph(
                 onBack = { navController.popBackStack() },
                 onNavigateToCall = { targetPeerId, callType ->
                     navController.navigate(Screen.Call.createRoute(targetPeerId, callType))
-                }
+                },
+                onChatOpened = { appContainer.onChatOpened(peerId) },
+                onChatClosed = { appContainer.onChatClosed(peerId) }
             )
         }
 

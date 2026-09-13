@@ -59,6 +59,24 @@ class ChatRepository(
         messageDao.updateMessageStatus(messageId, status)
     }
 
+    suspend fun updateMessageStatusIfNotRead(messageId: String, status: MessageStatus) {
+        messageDao.updateMessageStatusIfNotRead(messageId, status)
+    }
+
+    suspend fun updateMessagesStatus(messageIds: List<String>, status: MessageStatus) {
+        if (messageIds.isNotEmpty()) {
+            messageDao.updateMessagesStatus(messageIds, status)
+        }
+    }
+
+    suspend fun markIncomingAsRead(peerId: String, myId: String): List<String> {
+        val unreadIds = messageDao.getUnreadIncomingMessageIds(peerId, myId)
+        if (unreadIds.isNotEmpty()) {
+            messageDao.markIncomingMessagesStatus(peerId, myId, MessageStatus.READ)
+        }
+        return unreadIds
+    }
+
     suspend fun clearChat(peerId: String, myId: String) {
         messageDao.clearConversation(peerId, myId)
     }

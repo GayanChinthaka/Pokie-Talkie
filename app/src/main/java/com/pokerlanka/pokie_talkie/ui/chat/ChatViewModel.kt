@@ -47,6 +47,27 @@ class ChatViewModel(
     val contact: StateFlow<Contact?> = contactRepository.getContactFlow(peerId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    init {
+        markConversationAsRead()
+        viewModelScope.launch {
+            messages.collect { msgs ->
+                val hasUnreadIncoming = msgs.any { !it.isFromMe && it.status != MessageStatus.READ }
+                if (hasUnreadIncoming) {
+                    markConversationAsRead()
+                }
+            }
+        }
+    }
+
+    fun markConversationAsRead() {
+        viewModelScope.launch {
+            val unreadIds = chatRepository.markIncomingAsRead(peerId, myUserId)
+            if (unreadIds.isNotEmpty()) {
+                fcmSignalingClient.sendReadReceipt(peerId, unreadIds)
+            }
+        }
+    }
+
     fun onInputTextChanged(newText: String) {
         _inputText.value = newText
     }
@@ -68,8 +89,10 @@ class ChatViewModel(
             val contactObj = contact.value
             val isLan = contactObj?.isOnlineLan == true
             val initialStatus = if (isLan) MessageStatus.SENT_LAN else MessageStatus.SENT_FCM
+            val messageId = UUID.randomUUID().toString()
 
             chatRepository.saveMessage(
+                id = messageId,
                 senderId = myUserId,
                 receiverId = peerId,
                 content = text,
@@ -78,11 +101,12 @@ class ChatViewModel(
                 status = initialStatus
             )
 
-            // Dispatch payload
+            // Dispatch payload with messageId
             fcmSignalingClient.sendChatMessage(
                 targetId = peerId,
                 content = text,
-                type = MessageType.TEXT
+                type = MessageType.TEXT,
+                messageId = messageId
             )
         }
     }
@@ -93,8 +117,10 @@ class ChatViewModel(
             val contactObj = contact.value
             val isLan = contactObj?.isOnlineLan == true
             val initialStatus = if (isLan) MessageStatus.SENT_LAN else MessageStatus.SENT_FCM
+            val messageId = UUID.randomUUID().toString()
 
             chatRepository.saveMessage(
+                id = messageId,
                 senderId = myUserId,
                 receiverId = peerId,
                 content = sticker.emojiRepresentation,
@@ -107,7 +133,8 @@ class ChatViewModel(
             fcmSignalingClient.sendChatMessage(
                 targetId = peerId,
                 content = sticker.emojiRepresentation,
-                type = MessageType.STICKER
+                type = MessageType.STICKER,
+                messageId = messageId
             )
         }
     }

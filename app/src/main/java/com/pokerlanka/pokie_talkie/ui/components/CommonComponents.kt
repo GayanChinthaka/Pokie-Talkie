@@ -543,27 +543,27 @@ fun ChatBubble(
                                     fontSize = 10.sp
                                 )
                             }
-                            MessageStatus.SENT_LAN -> {
+                            MessageStatus.SENT_LAN, MessageStatus.SENT_FCM -> {
                                 Icon(
                                     imageVector = Icons.Default.Check,
-                                    contentDescription = "Sent via LAN",
-                                    tint = PokieEmerald,
-                                    modifier = Modifier.size(13.dp)
-                                )
-                            }
-                            MessageStatus.SENT_FCM -> {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = "Sent via FCM",
+                                    contentDescription = "Sent",
                                     tint = timeTextColor,
                                     modifier = Modifier.size(13.dp)
                                 )
                             }
-                            MessageStatus.DELIVERED, MessageStatus.READ -> {
+                            MessageStatus.DELIVERED -> {
                                 Icon(
                                     imageVector = Icons.Default.DoneAll,
                                     contentDescription = "Delivered",
-                                    tint = if (message.status == MessageStatus.READ) Color(0xFF53BDEB) else timeTextColor,
+                                    tint = timeTextColor,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+                            MessageStatus.READ -> {
+                                Icon(
+                                    imageVector = Icons.Default.DoneAll,
+                                    contentDescription = "Read",
+                                    tint = Color(0xFF34B7F1),
                                     modifier = Modifier.size(15.dp)
                                 )
                             }
