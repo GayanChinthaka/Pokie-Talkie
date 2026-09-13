@@ -18,6 +18,7 @@ import com.pokerlanka.pokie_talkie.data.model.CallState
 import com.pokerlanka.pokie_talkie.data.model.CallType
 import com.pokerlanka.pokie_talkie.data.model.MessageType
 import com.pokerlanka.pokie_talkie.data.model.SignalingType
+import com.pokerlanka.pokie_talkie.data.model.SignalingPayload
 import com.pokerlanka.pokie_talkie.data.repository.CallRepository
 import com.pokerlanka.pokie_talkie.data.repository.ChatRepository
 import com.pokerlanka.pokie_talkie.data.repository.ContactRepository
@@ -32,6 +33,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import com.pokerlanka.pokie_talkie.bluetooth.BluetoothTransportManager
+import com.pokerlanka.pokie_talkie.bluetooth.BluetoothVoiceManager
+import com.pokerlanka.pokie_talkie.wifip2p.WifiDirectManager
 import org.webrtc.SessionDescription
 
 import com.google.firebase.messaging.FirebaseMessaging
@@ -53,14 +57,29 @@ class AppContainer(val context: Context) {
     val contactRepository by lazy { ContactRepository(database.contactDao()) }
     val callRepository by lazy { CallRepository(database.callLogDao()) }
 
-    // Networking & Realtime
+    // Networking, Bluetooth & Proximity Transport
     val lanSocketServer by lazy { LanSocketServer(applicationScope) }
     val lanDiscoveryManager by lazy { LanDiscoveryManager(context, contactRepository, applicationScope) }
+    val bluetoothTransportManager by lazy { BluetoothTransportManager(context, applicationScope) }
+    val bluetoothVoiceManager by lazy { BluetoothVoiceManager(context, applicationScope, bluetoothTransportManager.bluetoothAdapter) }
+    val wifiDirectManager by lazy {
+        WifiDirectManager(context) { peerIp, isGroupOwner ->
+            Log.i(tag, "Wi-Fi Direct peer connected with IP: $peerIp, isGroupOwner: $isGroupOwner")
+            applicationScope.launch {
+                addManualContact(
+                    name = "Nearby Peer ($peerIp)",
+                    ipAddress = peerIp,
+                    port = 52220
+                )
+            }
+        }
+    }
 
     val fcmSignalingClient by lazy {
         FcmSignalingClient(
             contactRepository = contactRepository,
             lanSocketServer = lanSocketServer,
+            bluetoothTransportManager = bluetoothTransportManager,
             userPreferencesManager = userPreferencesManager,
             scope = applicationScope,
             myUserId = currentUserId,
@@ -126,8 +145,24 @@ class AppContainer(val context: Context) {
         // Setup WebRTC Callbacks
         setupWebRtcCallbacks()
 
-        // Listen for direct LAN incoming payloads
+        // Start Bluetooth listeners
+        try {
+            bluetoothTransportManager.startServer()
+            bluetoothVoiceManager.startVoiceServer()
+        } catch (e: Exception) {
+            Log.w(tag, "Bluetooth listener start deferred: ${e.message}")
+        }
+
+        // Initialize Wi-Fi Direct
+        try {
+            wifiDirectManager.initialize()
+        } catch (e: Exception) {
+            Log.w(tag, "Wi-Fi Direct init deferred: ${e.message}")
+        }
+
+        // Listen for direct LAN & Bluetooth incoming payloads
         listenForLanPayloads()
+        listenForBluetoothPayloads()
     }
 
     private fun setupWebRtcCallbacks() {
@@ -172,60 +207,99 @@ class AppContainer(val context: Context) {
     private fun listenForLanPayloads() {
         applicationScope.launch(Dispatchers.IO) {
             lanSocketServer.incomingPayloads.collect { payload ->
-                Log.d(tag, "Handling incoming LAN payload [${payload.type}] from ${payload.senderName}")
-                when (payload.type) {
-                    SignalingType.OFFER -> {
-                        val callType = payload.callType ?: CallType.VOICE
-                        val callId = payload.callId ?: System.currentTimeMillis().toString()
+                handleIncomingSignalingPayload(payload, "LAN")
+            }
+        }
+    }
 
-                        // Store pending remote SDP offer for when the user answers
-                        webRtcManager.pendingRemoteOfferSdp = payload.sdp
+    private fun listenForBluetoothPayloads() {
+        applicationScope.launch(Dispatchers.IO) {
+            bluetoothTransportManager.incomingPayloads.collect { payload ->
+                handleIncomingSignalingPayload(payload, "Bluetooth")
+            }
+        }
+    }
 
-                        telecomCallManager.handleIncomingCall(
-                            callerId = payload.senderId,
-                            callerName = payload.senderName,
-                            callType = callType,
-                            callId = callId
-                        )
-                    }
+    private fun handleIncomingSignalingPayload(payload: SignalingPayload, source: String) {
+        Log.d(tag, "Handling incoming $source payload [${payload.type}] from ${payload.senderName}")
+        when (payload.type) {
+            SignalingType.OFFER -> {
+                val callType = payload.callType ?: CallType.VOICE
+                val callId = payload.callId ?: System.currentTimeMillis().toString()
 
-                    SignalingType.ANSWER -> {
-                        payload.sdp?.let { sdpString ->
-                            webRtcManager.setRemoteDescription(sdpString, SessionDescription.Type.ANSWER)
-                        }
-                        PokieConnectionService.activeConnection?.markConnected()
-                        callRepository.updateCallState(CallState.CONNECTED)
-                    }
+                // Store pending remote SDP offer for when the user answers
+                webRtcManager.pendingRemoteOfferSdp = payload.sdp
 
-                    SignalingType.ICE_CANDIDATE -> {
-                        payload.iceCandidate?.let { candidate ->
-                            webRtcManager.addRemoteIceCandidate(candidate)
-                        }
-                    }
+                telecomCallManager.handleIncomingCall(
+                    callerId = payload.senderId,
+                    callerName = payload.senderName,
+                    callType = callType,
+                    callId = callId
+                )
+            }
 
-                    SignalingType.HANGUP -> {
-                        webRtcManager.endCall()
-                        PokieConnectionService.activeConnection?.markDisconnected()
-                        telecomCallManager.dismissCallNotification()
-                        callRepository.endCallAndLog()
-                    }
+            SignalingType.ANSWER -> {
+                payload.sdp?.let { sdpString ->
+                    webRtcManager.setRemoteDescription(sdpString, SessionDescription.Type.ANSWER)
+                }
+                PokieConnectionService.activeConnection?.markConnected()
+                callRepository.updateCallState(CallState.CONNECTED)
+            }
 
-                    SignalingType.CHAT_MESSAGE -> {
-                        val content = payload.messageContent ?: return@collect
-                        val type = payload.messageType ?: MessageType.TEXT
-                        chatRepository.saveMessage(
-                            senderId = payload.senderId,
-                            receiverId = currentUserId,
-                            content = content,
-                            type = type,
-                            isFromMe = false
-                        )
-                        showChatMessageNotification(payload.senderName, content)
-                    }
-
-                    SignalingType.PING -> {}
+            SignalingType.ICE_CANDIDATE -> {
+                payload.iceCandidate?.let { candidate ->
+                    webRtcManager.addRemoteIceCandidate(candidate)
                 }
             }
+
+            SignalingType.HANGUP -> {
+                webRtcManager.endCall()
+                bluetoothVoiceManager.stopDuplexAudio()
+                PokieConnectionService.activeConnection?.markDisconnected()
+                telecomCallManager.dismissCallNotification()
+                applicationScope.launch {
+                    callRepository.endCallAndLog()
+                }
+            }
+
+            SignalingType.CHAT_MESSAGE -> {
+                val content = payload.messageContent ?: return
+                val type = payload.messageType ?: MessageType.TEXT
+                applicationScope.launch {
+                    chatRepository.saveMessage(
+                        senderId = payload.senderId,
+                        receiverId = currentUserId,
+                        content = content,
+                        type = type,
+                        isFromMe = false
+                    )
+                }
+                showChatMessageNotification(payload.senderName, content)
+            }
+
+            SignalingType.PING -> {}
+        }
+    }
+
+    fun ensureListenersActive() {
+        try {
+            if (!lanSocketServer.isRunning) {
+                lanSocketServer.start(52220)
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "LanSocketServer start error: ${e.message}")
+        }
+        try {
+            if (!bluetoothTransportManager.isRunning) {
+                bluetoothTransportManager.startServer()
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "Bluetooth start error: ${e.message}")
+        }
+        try {
+            bluetoothVoiceManager.startVoiceServer()
+        } catch (e: Exception) {
+            Log.w(tag, "Bluetooth voice server start error: ${e.message}")
         }
     }
 

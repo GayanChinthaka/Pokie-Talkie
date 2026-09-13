@@ -17,12 +17,14 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import org.webrtc.SessionDescription
 import java.io.OutputStreamWriter
+import com.pokerlanka.pokie_talkie.bluetooth.BluetoothTransportManager
 import java.net.HttpURLConnection
 import java.net.URL
 
 class FcmSignalingClient(
     private val contactRepository: ContactRepository,
     private val lanSocketServer: LanSocketServer,
+    private val bluetoothTransportManager: BluetoothTransportManager,
     private val userPreferencesManager: UserPreferencesManager,
     private val scope: CoroutineScope,
     private val myUserId: String,
@@ -96,20 +98,27 @@ class FcmSignalingClient(
             val contact = contactRepository.getContact(targetId)
             var lanSuccess = false
 
-            // 1. Try Direct Local LAN Socket first
+            // Priority 1: Direct Local LAN Wi-Fi Socket
             if (contact != null && contact.isOnlineLan && contact.ipAddress.isNotBlank()) {
                 Log.d(tag, "Attempting direct LAN dispatch to ${contact.name} at ${contact.ipAddress}:${contact.port}")
                 lanSuccess = lanSocketServer.sendPayload(contact.ipAddress, contact.port, payload)
             }
 
-            // 2. Always fallback to FCM High-Priority Cloud Push when LAN delivery fails or target is offline
+            // Priority 2: Bluetooth RFCOMM Direct Proximity Fallback (Zero WiFi router needed)
+            var btSuccess = false
             if (!lanSuccess) {
+                Log.d(tag, "LAN delivery failed or offline. Attempting Priority 2 Bluetooth RFCOMM to $targetId")
+                btSuccess = bluetoothTransportManager.sendPayload(targetId, payload)
+            }
+
+            // Priority 3: Cloud / Remote Push Fallback
+            if (!lanSuccess && !btSuccess) {
                 val fcmToken = contact?.fcmToken
                 if (!fcmToken.isNullOrBlank()) {
-                    Log.d(tag, "LAN delivery unavailable for ${contact.name}. Dispatching payload via FCM Cloud fallback to token: $fcmToken")
+                    Log.d(tag, "LAN & Bluetooth unavailable. Attempting Priority 3 FCM push to token: $fcmToken")
                     sendFcmPayload(fcmToken, payload)
                 } else {
-                    Log.w(tag, "Target $targetId unreachable on LAN and has no known FCM token in database")
+                    Log.w(tag, "Target $targetId unreachable on LAN or Bluetooth and has no known FCM token")
                 }
             }
         }

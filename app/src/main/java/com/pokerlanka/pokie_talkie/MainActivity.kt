@@ -35,6 +35,18 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             add(Manifest.permission.POST_NOTIFICATIONS)
         }
+        // Bluetooth permissions (Android 12+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            add(Manifest.permission.BLUETOOTH_CONNECT)
+            add(Manifest.permission.BLUETOOTH_SCAN)
+            add(Manifest.permission.BLUETOOTH_ADVERTISE)
+        }
+        // Nearby Wi-Fi Devices (Android 13+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            add(Manifest.permission.NEARBY_WIFI_DEVICES)
+        } else {
+            add(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
     }
 
     private val permissionLauncher = registerForActivityResult(
@@ -44,10 +56,12 @@ class MainActivity : ComponentActivity() {
         if (!allGranted) {
             Toast.makeText(
                 this,
-                "Microphone, Camera & Call permissions are recommended for full LAN calling features.",
+                "Microphone, Camera, Bluetooth & Local Network permissions are recommended for full proximity calling features.",
                 Toast.LENGTH_LONG
             ).show()
         }
+        com.pokerlanka.pokie_talkie.service.PokieLocalService.startService(this)
+        (application as? PokieApp)?.appContainer?.ensureListenersActive()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -112,6 +126,9 @@ class MainActivity : ComponentActivity() {
 
         if (missingPermissions.isNotEmpty()) {
             permissionLauncher.launch(missingPermissions.toTypedArray())
+        } else {
+            com.pokerlanka.pokie_talkie.service.PokieLocalService.startService(this)
+            (application as? PokieApp)?.appContainer?.ensureListenersActive()
         }
     }
 }

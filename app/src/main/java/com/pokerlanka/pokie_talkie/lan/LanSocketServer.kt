@@ -33,6 +33,9 @@ class LanSocketServer(
     private val _incomingPayloads = MutableSharedFlow<SignalingPayload>(extraBufferCapacity = 64)
     val incomingPayloads: SharedFlow<SignalingPayload> = _incomingPayloads.asSharedFlow()
 
+    val isRunning: Boolean
+        get() = serverJob?.isActive == true && serverSocket?.isClosed == false
+
     fun start(port: Int = 52220) {
         if (serverJob?.isActive == true) return
         this.serverPort = port

@@ -26,6 +26,7 @@ import com.pokerlanka.pokie_talkie.data.model.CallType
 import com.pokerlanka.pokie_talkie.data.repository.CallRepository
 import com.pokerlanka.pokie_talkie.ui.call.IncomingCallActivity
 
+import com.pokerlanka.pokie_talkie.service.PokieLocalService
 import com.pokerlanka.pokie_talkie.webrtc.WebRtcManager
 
 class TelecomCallManager(
@@ -119,9 +120,10 @@ class TelecomCallManager(
             Log.e(tag, "TelecomManager addNewIncomingCall failed: ${e.message}")
         }
 
+        PokieLocalService.notifyCallStarted(context)
+
         // - In-App: App is in foreground -> Compose UI navigates to full-screen CallScreen without top notification banner
-        // - Minimized: Only Notification Banner with Answer/Decline actions
-        // - Screen Lock: Fullscreen Incoming Call UI directly on lockscreen
+        // - Minimized / Locked: Heads-up notification or Full-screen lockscreen activity
         if (!isForeground) {
             showIncomingCallNotification(
                 callerId = callerId,
@@ -164,6 +166,7 @@ class TelecomCallManager(
             isIncoming = false,
             state = CallState.RINGING_OUTGOING
         )
+        PokieLocalService.notifyCallStarted(context)
         callRepository.setCallSession(session)
 
         // Initialize WebRTC pipeline directly for immediate local media capture and Offer creation
@@ -200,7 +203,7 @@ class TelecomCallManager(
         callerName: String,
         callType: CallType,
         callId: String,
-        isScreenOffOrLocked: Boolean = true
+        @Suppress("UNUSED_PARAMETER") isScreenOffOrLocked: Boolean = true
     ) {
         val fullscreenIntent = Intent(context, IncomingCallActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -262,10 +265,9 @@ class TelecomCallManager(
             .addAction(R.drawable.ic_launcher_foreground, "Decline", declinePendingIntent)
             .addAction(R.drawable.ic_launcher_foreground, "Answer", answerPendingIntent)
 
-        // Only launch full screen intent when the device is locked / screen is off
-        if (isScreenOffOrLocked) {
-            builder.setFullScreenIntent(pendingFullscreenIntent, true)
-        }
+        // Always set full-screen intent so Android displays a heads-up floating banner
+        // when device is in use, or launches the full-screen IncomingCallActivity on lockscreen
+        builder.setFullScreenIntent(pendingFullscreenIntent, true)
 
         val notification = builder.build()
         notification.flags = notification.flags or android.app.Notification.FLAG_INSISTENT
@@ -275,5 +277,6 @@ class TelecomCallManager(
 
     fun dismissCallNotification() {
         notificationManager.cancel(NOTIFICATION_CALL_ID)
+        PokieLocalService.notifyCallEnded(context)
     }
 }
