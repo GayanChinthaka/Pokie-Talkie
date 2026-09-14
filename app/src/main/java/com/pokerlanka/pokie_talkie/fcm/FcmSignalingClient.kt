@@ -144,6 +144,79 @@ class FcmSignalingClient(
         dispatchPayload(targetId, payload)
     }
 
+    fun sendSwitchToVideoRequest(targetId: String, callId: String) {
+        val payload = SignalingPayload(
+            type = SignalingType.SWITCH_TO_VIDEO_REQUEST,
+            senderId = myUserId,
+            senderName = myUserName,
+            targetId = targetId,
+            callId = callId,
+            callType = CallType.VIDEO
+        )
+        dispatchPayload(targetId, payload)
+    }
+
+    fun sendSwitchToVideoAccept(targetId: String, callId: String) {
+        val payload = SignalingPayload(
+            type = SignalingType.SWITCH_TO_VIDEO_ACCEPT,
+            senderId = myUserId,
+            senderName = myUserName,
+            targetId = targetId,
+            callId = callId,
+            callType = CallType.VIDEO
+        )
+        dispatchPayload(targetId, payload)
+    }
+
+    fun sendSwitchToVideoDecline(targetId: String, callId: String) {
+        val payload = SignalingPayload(
+            type = SignalingType.SWITCH_TO_VIDEO_DECLINE,
+            senderId = myUserId,
+            senderName = myUserName,
+            targetId = targetId,
+            callId = callId
+        )
+        dispatchPayload(targetId, payload)
+    }
+
+    fun sendCameraState(targetId: String, callId: String, isCameraOn: Boolean) {
+        val payload = SignalingPayload(
+            type = SignalingType.CAMERA_STATE,
+            senderId = myUserId,
+            senderName = myUserName,
+            targetId = targetId,
+            callId = callId,
+            isCameraOn = isCameraOn
+        )
+        dispatchPayload(targetId, payload)
+    }
+
+    fun sendRenegotiationOffer(targetId: String, callId: String, sdp: SessionDescription) {
+        val payload = SignalingPayload(
+            type = SignalingType.RENEGOTIATION_OFFER,
+            senderId = myUserId,
+            senderName = myUserName,
+            targetId = targetId,
+            callId = callId,
+            callType = CallType.VIDEO,
+            sdp = sdp.description
+        )
+        dispatchPayload(targetId, payload)
+    }
+
+    fun sendRenegotiationAnswer(targetId: String, callId: String, sdp: SessionDescription) {
+        val payload = SignalingPayload(
+            type = SignalingType.RENEGOTIATION_ANSWER,
+            senderId = myUserId,
+            senderName = myUserName,
+            targetId = targetId,
+            callId = callId,
+            callType = CallType.VIDEO,
+            sdp = sdp.description
+        )
+        dispatchPayload(targetId, payload)
+    }
+
     fun broadcastProfileUpdate(newName: String) {
         val payload = SignalingPayload(
             type = SignalingType.PROFILE_UPDATE,

@@ -14,8 +14,11 @@ import com.pokerlanka.pokie_talkie.data.model.Message
 import com.pokerlanka.pokie_talkie.data.model.MessageStatus
 import com.pokerlanka.pokie_talkie.data.model.MessageType
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import java.util.UUID
@@ -192,12 +195,30 @@ class CallRepository(
     private val _currentCall = MutableStateFlow<CallSession?>(null)
     val currentCall: StateFlow<CallSession?> = _currentCall.asStateFlow()
 
+    private val _videoUpgradeRequest = MutableStateFlow<String?>(null)
+    val videoUpgradeRequest: StateFlow<String?> = _videoUpgradeRequest.asStateFlow()
+
+    private val _uiMessage = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    val uiMessage: SharedFlow<String> = _uiMessage.asSharedFlow()
+
     fun setCallSession(session: CallSession?) {
         _currentCall.value = session
     }
 
+    fun setVideoUpgradeRequest(requesterName: String?) {
+        _videoUpgradeRequest.value = requesterName
+    }
+
+    fun emitMessage(message: String) {
+        _uiMessage.tryEmit(message)
+    }
+
     fun updateCallState(state: CallState) {
         _currentCall.value = _currentCall.value?.copy(state = state)
+    }
+
+    fun updateCallType(callType: CallType) {
+        _currentCall.value = _currentCall.value?.copy(callType = callType)
     }
 
     fun updateDuration(duration: Long) {
@@ -218,10 +239,12 @@ class CallRepository(
             timestamp = session.startTimestamp
         )
         callLogDao.insertCallLog(log)
+        _videoUpgradeRequest.value = null
         _currentCall.value = session.copy(state = CallState.DISCONNECTED)
     }
 
     fun clearSession() {
+        _videoUpgradeRequest.value = null
         _currentCall.value = null
     }
 

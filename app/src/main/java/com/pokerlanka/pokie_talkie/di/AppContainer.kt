@@ -391,6 +391,57 @@ class AppContainer(val context: Context) {
                 }
             }
 
+            SignalingType.SWITCH_TO_VIDEO_REQUEST -> {
+                val currentCall = callRepository.currentCall.value
+                if (currentCall != null && currentCall.state == CallState.CONNECTED) {
+                    Log.i(tag, "Received SWITCH_TO_VIDEO_REQUEST from ${payload.senderName}")
+                    callRepository.setVideoUpgradeRequest(payload.senderName.ifBlank { "Caller" })
+                }
+            }
+
+            SignalingType.SWITCH_TO_VIDEO_ACCEPT -> {
+                Log.i(tag, "Received SWITCH_TO_VIDEO_ACCEPT from ${payload.senderName}")
+                callRepository.updateCallType(CallType.VIDEO)
+                webRtcManager.upgradeToVideo()
+                val currentCall = callRepository.currentCall.value
+                if (currentCall != null) {
+                    webRtcManager.createRenegotiationOffer { sdp ->
+                        fcmSignalingClient.sendRenegotiationOffer(payload.senderId, currentCall.callId, sdp)
+                    }
+                }
+            }
+
+            SignalingType.SWITCH_TO_VIDEO_DECLINE -> {
+                Log.i(tag, "Received SWITCH_TO_VIDEO_DECLINE from ${payload.senderName}")
+                callRepository.emitMessage("${payload.senderName.ifBlank { "Peer" }} declined switch to video")
+            }
+
+            SignalingType.CAMERA_STATE -> {
+                val isCameraOn = payload.isCameraOn ?: true
+                Log.i(tag, "Received CAMERA_STATE from ${payload.senderName}: isCameraOn=$isCameraOn")
+                webRtcManager.setRemoteVideoEnabled(isCameraOn)
+            }
+
+            SignalingType.RENEGOTIATION_OFFER -> {
+                val sdp = payload.sdp ?: return
+                val currentCall = callRepository.currentCall.value
+                Log.i(tag, "Received RENEGOTIATION_OFFER from ${payload.senderName}")
+                callRepository.updateCallType(CallType.VIDEO)
+                webRtcManager.upgradeToVideo()
+                webRtcManager.setRemoteDescription(sdp, SessionDescription.Type.OFFER)
+                if (currentCall != null) {
+                    webRtcManager.createRenegotiationAnswer { answerSdp ->
+                        fcmSignalingClient.sendRenegotiationAnswer(payload.senderId, currentCall.callId, answerSdp)
+                    }
+                }
+            }
+
+            SignalingType.RENEGOTIATION_ANSWER -> {
+                val sdp = payload.sdp ?: return
+                Log.i(tag, "Received RENEGOTIATION_ANSWER from ${payload.senderName}")
+                webRtcManager.setRemoteDescription(sdp, SessionDescription.Type.ANSWER)
+            }
+
             SignalingType.PING -> {}
         }
     }

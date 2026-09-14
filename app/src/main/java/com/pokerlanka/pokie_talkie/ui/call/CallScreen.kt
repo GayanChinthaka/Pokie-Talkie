@@ -7,6 +7,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -35,14 +36,21 @@ import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VideocamOff
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,8 +58,10 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.pokerlanka.pokie_talkie.data.model.CallState
 import com.pokerlanka.pokie_talkie.data.model.CallType
 import com.pokerlanka.pokie_talkie.ui.components.AvatarView
@@ -78,7 +88,18 @@ fun CallScreen(
     val remoteVideoTrack by viewModel.remoteVideoTrack.collectAsState()
     val isMuted by viewModel.isMuted.collectAsState()
     val isVideoEnabled by viewModel.isVideoEnabled.collectAsState()
+    val isRemoteVideoEnabled by viewModel.isRemoteVideoEnabled.collectAsState()
     val isSpeakerOn by viewModel.isSpeakerOn.collectAsState()
+    val videoUpgradeRequester by viewModel.videoUpgradeRequest.collectAsState()
+    var snackbarMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        viewModel.uiMessage.collect { msg ->
+            snackbarMessage = msg
+            kotlinx.coroutines.delay(3200)
+            if (snackbarMessage == msg) snackbarMessage = null
+        }
+    }
 
     // Automatically navigate back when call is finished
     LaunchedEffect(callSession?.state) {
@@ -102,8 +123,8 @@ fun CallScreen(
             .fillMaxSize()
             .background(PokieDarkBg)
     ) {
-        // Video Call Background / Remote Video Track
-        if (isVideo && remoteVideoTrack != null) {
+        // Video Call Background / Remote Video Track (only when remote camera is enabled)
+        if (isVideo && remoteVideoTrack != null && isRemoteVideoEnabled) {
             WebRtcVideoView(
                 videoTrack = remoteVideoTrack,
                 eglBaseContext = viewModel.eglBaseContext,
@@ -191,8 +212,9 @@ fun CallScreen(
                 )
             }
 
-            // Middle Section: Large Avatar with Pulse (Voice Calls)
-            if (!isVideo || remoteVideoTrack == null) {
+            // Middle Section: Voice Call Avatar OR Video Call Camera-Off view (No plain black screen!)
+            val isRemoteVideoActive = isVideo && remoteVideoTrack != null && isRemoteVideoEnabled
+            if (!isRemoteVideoActive) {
                 val infiniteTransition = rememberInfiniteTransition(label = "pulse")
                 val pulseScale by infiniteTransition.animateFloat(
                     initialValue = 1f,
@@ -204,24 +226,58 @@ fun CallScreen(
                     label = "avatarPulse"
                 )
 
-                Box(
-                    modifier = Modifier
-                        .size(160.dp)
-                        .scale(if (!isConnected) pulseScale else 1f),
-                    contentAlignment = Alignment.Center
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
-                    // Outer Ring
                     Box(
                         modifier = Modifier
                             .size(160.dp)
-                            .clip(CircleShape)
-                            .background(PokieEmerald.copy(alpha = 0.15f))
-                    )
-                    AvatarView(
-                        name = callSession?.peerName ?: "Family",
-                        size = 120.dp,
-                        backgroundColor = PokieEmerald
-                    )
+                            .scale(if (!isConnected) pulseScale else 1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        // Outer Ring
+                        Box(
+                            modifier = Modifier
+                                .size(160.dp)
+                                .clip(CircleShape)
+                                .background(PokieEmerald.copy(alpha = 0.15f))
+                        )
+                        AvatarView(
+                            name = callSession?.peerName ?: "Family",
+                            size = 120.dp,
+                            backgroundColor = PokieEmerald
+                        )
+                    }
+
+                    // Crossed-out camera badge shown when it's a Video Call and peer has camera off
+                    if (isVideo && !isRemoteVideoEnabled) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color.Black.copy(alpha = 0.7f),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.VideocamOff,
+                                    contentDescription = "Camera is off",
+                                    tint = Color(0xFFFF5252),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "${callSession?.peerName ?: "Peer"}'s camera is off",
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -281,6 +337,15 @@ fun CallScreen(
                                 label = "Flip",
                                 onClick = viewModel::switchCamera
                             )
+                        } else {
+                            // Switch to Video Call Option for Audio Calls
+                            CallControlButton(
+                                icon = Icons.Default.Videocam,
+                                label = "Video",
+                                backgroundColor = Color.White.copy(alpha = 0.2f),
+                                iconTint = Color.White,
+                                onClick = viewModel::requestSwitchToVideo
+                            )
                         }
 
                         // End Call Button
@@ -298,32 +363,146 @@ fun CallScreen(
         }
 
         // Local Video PIP Thumbnail (Top-Right) for Video Calls
-        if (isVideo && localVideoTrack != null && isVideoEnabled) {
+        if (isVideo && localVideoTrack != null) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(top = 60.dp, end = 20.dp)
                     .size(width = 110.dp, height = 160.dp)
                     .clip(RoundedCornerShape(16.dp))
-                    .border(2.dp, Color.White.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
-                    .clickable { viewModel.switchCamera() }
+                    .background(Color(0xFF1E1E1E).copy(alpha = 0.95f))
+                    .border(2.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+                    .clickable {
+                        if (isVideoEnabled) viewModel.switchCamera() else viewModel.toggleVideo()
+                    }
             ) {
-                WebRtcVideoView(
-                    videoTrack = localVideoTrack,
-                    eglBaseContext = viewModel.eglBaseContext,
-                    modifier = Modifier.fillMaxSize(),
-                    isMirror = true
-                )
+                if (isVideoEnabled) {
+                    WebRtcVideoView(
+                        videoTrack = localVideoTrack,
+                        eglBaseContext = viewModel.eglBaseContext,
+                        modifier = Modifier.fillMaxSize(),
+                        isMirror = true
+                    )
 
-                // Tap to switch icon hint
-                Icon(
-                    imageVector = Icons.Default.Cameraswitch,
-                    contentDescription = "Switch Camera",
-                    tint = Color.White.copy(alpha = 0.8f),
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(6.dp)
-                        .size(16.dp)
+                    // Tap to switch icon hint
+                    Icon(
+                        imageVector = Icons.Default.Cameraswitch,
+                        contentDescription = "Switch Camera",
+                        tint = Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(6.dp)
+                            .size(16.dp)
+                    )
+                } else {
+                    // Camera Off crossed-out camera icon placeholder
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.12f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.VideocamOff,
+                                contentDescription = "Camera Off",
+                                tint = Color(0xFFFF5252),
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Camera off",
+                            color = Color.White.copy(alpha = 0.9f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Tap to enable",
+                            color = PokieTextSecondary,
+                            fontSize = 9.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        // Incoming Switch to Video Request Dialog
+        if (videoUpgradeRequester != null) {
+            AlertDialog(
+                onDismissRequest = { viewModel.declineSwitchToVideo() },
+                containerColor = PokieDarkBg,
+                icon = {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(PokieEmerald.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Videocam,
+                            contentDescription = null,
+                            tint = PokieEmerald,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+                },
+                title = {
+                    Text(
+                        text = "Switch to Video Call?",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
+                },
+                text = {
+                    Text(
+                        text = "$videoUpgradeRequester wants to switch this call to video.",
+                        color = PokieTextSecondary,
+                        textAlign = TextAlign.Center
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = { viewModel.acceptSwitchToVideo() },
+                        colors = ButtonDefaults.buttonColors(containerColor = PokieCallGreen)
+                    ) {
+                        Text("Switch to Video", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { viewModel.declineSwitchToVideo() }) {
+                        Text("Decline", color = Color.White.copy(alpha = 0.7f))
+                    }
+                }
+            )
+        }
+
+        // Floating in-call notification chip
+        snackbarMessage?.let { msg ->
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 95.dp)
+                    .zIndex(10f),
+                shape = RoundedCornerShape(16.dp),
+                color = Color.Black.copy(alpha = 0.85f),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f))
+            ) {
+                Text(
+                    text = msg,
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
             }
         }

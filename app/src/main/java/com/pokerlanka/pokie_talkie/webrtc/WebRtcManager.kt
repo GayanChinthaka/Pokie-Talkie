@@ -66,6 +66,9 @@ class WebRtcManager(
     private val _isVideoEnabled = MutableStateFlow(true)
     val isVideoEnabled: StateFlow<Boolean> = _isVideoEnabled.asStateFlow()
 
+    private val _isRemoteVideoEnabled = MutableStateFlow(true)
+    val isRemoteVideoEnabled: StateFlow<Boolean> = _isRemoteVideoEnabled.asStateFlow()
+
     private val _isSpeakerOn = MutableStateFlow(false)
     val isSpeakerOn: StateFlow<Boolean> = _isSpeakerOn.asStateFlow()
 
@@ -397,6 +400,125 @@ class WebRtcManager(
         return newVideo
     }
 
+    fun setRemoteVideoEnabled(enabled: Boolean) {
+        _isRemoteVideoEnabled.value = enabled
+        Log.i(tag, "Remote video enabled set to: $enabled")
+    }
+
+    fun upgradeToVideo() {
+        Log.i(tag, "Upgrading active call to VIDEO")
+        val factory = peerConnectionFactory ?: return
+
+        // 1. Start local camera capturer and video track if not already running
+        if (localVideoTrack == null) {
+            try {
+                surfaceTextureHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.eglBaseContext)
+                val capturer = createCameraCapturer()
+                if (capturer != null) {
+                    videoCapturer = capturer
+                    localVideoSource = factory.createVideoSource(capturer.isScreencast)
+                    capturer.initialize(surfaceTextureHelper, context.applicationContext, localVideoSource!!.capturerObserver)
+                    try {
+                        capturer.startCapture(1280, 720, 30)
+                    } catch (e: Exception) {
+                        Log.w(tag, "Failed 720p capture, falling back to 640x480: ${e.message}")
+                        capturer.startCapture(640, 480, 30)
+                    }
+
+                    localVideoTrack = factory.createVideoTrack("ARDAMSv0", localVideoSource).apply {
+                        setEnabled(true)
+                    }
+                    _localVideoTrackFlow.value = localVideoTrack
+                    _isVideoEnabled.value = true
+                    Log.i(tag, "Local video track created and started for video upgrade")
+                }
+            } catch (e: Exception) {
+                Log.e(tag, "Error setting up local video track on upgrade: ${e.message}", e)
+            }
+        } else {
+            localVideoTrack?.setEnabled(true)
+            _isVideoEnabled.value = true
+        }
+
+        // 2. Attach local video track to existing PeerConnection if not attached
+        peerConnection?.let { pc ->
+            localVideoTrack?.let { track ->
+                val senders = pc.senders
+                val hasVideoSender = senders.any { it.track()?.kind() == "video" }
+                if (!hasVideoSender) {
+                    pc.addTrack(track, listOf("ARDAMS"))
+                    Log.i(tag, "Added localVideoTrack to active PeerConnection on upgrade")
+                }
+            }
+        }
+
+        // 3. Switch to speakerphone for video call
+        audioDeviceManager.setSpeakerphoneOn(true)
+        _isSpeakerOn.value = true
+    }
+
+    fun createRenegotiationOffer(onReady: (SessionDescription) -> Unit) {
+        val constraints = MediaConstraints().apply {
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "true"))
+        }
+
+        peerConnection?.createOffer(object : SdpObserver {
+            override fun onCreateSuccess(desc: SessionDescription?) {
+                desc?.let { sdp ->
+                    Log.d(tag, "Created renegotiation offer SDP")
+                    peerConnection?.setLocalDescription(object : SdpObserver {
+                        override fun onCreateSuccess(p0: SessionDescription?) {}
+                        override fun onSetSuccess() {
+                            Log.d(tag, "Set local description success for Renegotiation Offer")
+                            onReady(sdp)
+                        }
+                        override fun onCreateFailure(p0: String?) {}
+                        override fun onSetFailure(error: String?) {
+                            Log.e(tag, "Set local description failure for renegotiation offer: $error")
+                        }
+                    }, sdp)
+                }
+            }
+            override fun onSetSuccess() {}
+            override fun onCreateFailure(error: String?) {
+                Log.e(tag, "Create renegotiation offer failure: $error")
+            }
+            override fun onSetFailure(error: String?) {}
+        }, constraints)
+    }
+
+    fun createRenegotiationAnswer(onReady: (SessionDescription) -> Unit) {
+        val constraints = MediaConstraints().apply {
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "true"))
+        }
+
+        peerConnection?.createAnswer(object : SdpObserver {
+            override fun onCreateSuccess(desc: SessionDescription?) {
+                desc?.let { sdp ->
+                    Log.d(tag, "Created renegotiation answer SDP")
+                    peerConnection?.setLocalDescription(object : SdpObserver {
+                        override fun onCreateSuccess(p0: SessionDescription?) {}
+                        override fun onSetSuccess() {
+                            Log.d(tag, "Set local description success for Renegotiation Answer")
+                            onReady(sdp)
+                        }
+                        override fun onCreateFailure(p0: String?) {}
+                        override fun onSetFailure(error: String?) {
+                            Log.e(tag, "Set local description failure for renegotiation answer: $error")
+                        }
+                    }, sdp)
+                }
+            }
+            override fun onSetSuccess() {}
+            override fun onCreateFailure(error: String?) {
+                Log.e(tag, "Create renegotiation answer failure: $error")
+            }
+            override fun onSetFailure(error: String?) {}
+        }, constraints)
+    }
+
     fun toggleSpeaker(): Boolean {
         val newSpeaker = !_isSpeakerOn.value
         _isSpeakerOn.value = newSpeaker
@@ -462,6 +584,7 @@ class WebRtcManager(
             _isCallConnected.value = false
             _isAudioMuted.value = false
             _isVideoEnabled.value = true
+            _isRemoteVideoEnabled.value = true
         } catch (e: Exception) {
             Log.e(tag, "Error closing WebRTC session: ${e.message}")
         }

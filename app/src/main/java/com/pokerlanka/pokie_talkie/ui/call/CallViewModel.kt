@@ -15,6 +15,7 @@ import com.pokerlanka.pokie_talkie.bluetooth.BluetoothVoiceManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -50,6 +51,9 @@ class CallViewModel(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val isVideoEnabled: StateFlow<Boolean> = webRtcManager.isVideoEnabled
+    val isRemoteVideoEnabled: StateFlow<Boolean> = webRtcManager.isRemoteVideoEnabled
+    val videoUpgradeRequest: StateFlow<String?> = callRepository.videoUpgradeRequest
+    val uiMessage: SharedFlow<String> = callRepository.uiMessage
 
     val isSpeakerOn: StateFlow<Boolean> = combine(
         webRtcManager.isSpeakerOn,
@@ -135,7 +139,38 @@ class CallViewModel(
     }
 
     fun toggleVideo() {
-        webRtcManager.toggleVideo()
+        val newVideo = webRtcManager.toggleVideo()
+        val session = currentCall.value
+        if (session != null && !session.isBluetoothVoice) {
+            fcmSignalingClient.sendCameraState(session.peerId, session.callId, newVideo)
+        }
+    }
+
+    fun requestSwitchToVideo() {
+        val session = currentCall.value ?: return
+        if (session.isBluetoothVoice) {
+            callRepository.emitMessage("Video calls require Wi-Fi LAN connection")
+            return
+        }
+        fcmSignalingClient.sendSwitchToVideoRequest(session.peerId, session.callId)
+        callRepository.emitMessage("Requesting video call...")
+    }
+
+    fun acceptSwitchToVideo() {
+        val session = currentCall.value ?: return
+        callRepository.setVideoUpgradeRequest(null)
+        callRepository.updateCallType(CallType.VIDEO)
+        webRtcManager.upgradeToVideo()
+        fcmSignalingClient.sendSwitchToVideoAccept(session.peerId, session.callId)
+        webRtcManager.createRenegotiationOffer { sdp ->
+            fcmSignalingClient.sendRenegotiationOffer(session.peerId, session.callId, sdp)
+        }
+    }
+
+    fun declineSwitchToVideo() {
+        val session = currentCall.value ?: return
+        callRepository.setVideoUpgradeRequest(null)
+        fcmSignalingClient.sendSwitchToVideoDecline(session.peerId, session.callId)
     }
 
     fun toggleSpeaker() {

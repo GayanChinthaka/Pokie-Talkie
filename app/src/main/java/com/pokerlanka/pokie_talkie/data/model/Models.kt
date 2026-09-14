@@ -51,6 +51,18 @@ enum class SignalingType {
     READ_RECEIPT,
     @SerializedName("profile_update")
     PROFILE_UPDATE,
+    @SerializedName("switch_to_video_request")
+    SWITCH_TO_VIDEO_REQUEST,
+    @SerializedName("switch_to_video_accept")
+    SWITCH_TO_VIDEO_ACCEPT,
+    @SerializedName("switch_to_video_decline")
+    SWITCH_TO_VIDEO_DECLINE,
+    @SerializedName("camera_state")
+    CAMERA_STATE,
+    @SerializedName("renegotiation_offer")
+    RENEGOTIATION_OFFER,
+    @SerializedName("renegotiation_answer")
+    RENEGOTIATION_ANSWER,
     @SerializedName("ping")
     PING
 }
@@ -115,6 +127,8 @@ data class SignalingPayload(
     val messageType: MessageType? = null,
     @SerializedName("isBluetoothVoice")
     val isBluetoothVoice: Boolean = false,
+    @SerializedName("isCameraOn")
+    val isCameraOn: Boolean? = null,
     @SerializedName("timestamp")
     val timestamp: Long = System.currentTimeMillis()
 )
