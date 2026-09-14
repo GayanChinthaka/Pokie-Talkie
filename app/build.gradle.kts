@@ -2,7 +2,6 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.kapt")
-    id("com.google.gms.google-services")
 }
 
 android {
@@ -102,11 +101,6 @@ dependencies {
     implementation("androidx.room:room-ktx:$roomVersion")
     kapt("androidx.room:room-compiler:$roomVersion")
 
-    // Firebase (BOM & Messaging)
-    val firebaseBom = platform("com.google.firebase:firebase-bom:32.8.1")
-    implementation(firebaseBom)
-    implementation("com.google.firebase:firebase-messaging-ktx")
-    implementation("com.google.firebase:firebase-analytics-ktx")
 
     // WebRTC (Stream Android WebRTC prebuilt)
     implementation("io.getstream:stream-webrtc-android:1.1.1")

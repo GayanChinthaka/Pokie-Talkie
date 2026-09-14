@@ -25,7 +25,6 @@ import com.pokerlanka.pokie_talkie.data.repository.CallRepository
 import com.pokerlanka.pokie_talkie.data.repository.ChatRepository
 import com.pokerlanka.pokie_talkie.data.repository.ContactRepository
 import com.pokerlanka.pokie_talkie.fcm.FcmSignalingClient
-import com.pokerlanka.pokie_talkie.fcm.PokieFirebaseMessagingService
 import com.pokerlanka.pokie_talkie.lan.LanDiscoveryManager
 import com.pokerlanka.pokie_talkie.lan.LanSocketServer
 import com.pokerlanka.pokie_talkie.telecom.PokieConnectionService
@@ -40,12 +39,16 @@ import com.pokerlanka.pokie_talkie.bluetooth.BluetoothVoiceManager
 import com.pokerlanka.pokie_talkie.wifip2p.WifiDirectManager
 import org.webrtc.SessionDescription
 
-import com.google.firebase.messaging.FirebaseMessaging
 import com.pokerlanka.pokie_talkie.data.local.UserPreferencesManager
 import com.pokerlanka.pokie_talkie.data.model.Contact
 
 class AppContainer(val context: Context) {
     private val tag = "AppContainer"
+
+    companion object {
+        const val CHANNEL_MESSAGES_ID = "pokie_chat_messages"
+    }
+
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     // User Preferences & Device Identity
@@ -375,7 +378,7 @@ class AppContainer(val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(context, PokieFirebaseMessagingService.CHANNEL_MESSAGES_ID)
+        val notification = NotificationCompat.Builder(context, CHANNEL_MESSAGES_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(senderName)
             .setContentText(messageText)
@@ -412,7 +415,7 @@ class AppContainer(val context: Context) {
 
             // Chat Messages Channel
             val messagesChannel = NotificationChannel(
-                PokieFirebaseMessagingService.CHANNEL_MESSAGES_ID,
+                CHANNEL_MESSAGES_ID,
                 context.getString(R.string.channel_messages_name),
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
