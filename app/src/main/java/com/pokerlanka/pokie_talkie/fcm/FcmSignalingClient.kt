@@ -131,13 +131,15 @@ class FcmSignalingClient(
     }
 
     fun sendReadReceipt(targetId: String, messageIds: List<String>) {
-        if (messageIds.isEmpty()) return
+        val validIds = messageIds.filter { it.isNotBlank() }
+        if (validIds.isEmpty()) return
         val payload = SignalingPayload(
             type = SignalingType.READ_RECEIPT,
             senderId = myUserId,
             senderName = myUserName,
             targetId = targetId,
-            messageIds = messageIds
+            messageId = validIds.firstOrNull(),
+            messageIds = validIds
         )
         dispatchPayload(targetId, payload)
     }
@@ -168,6 +170,10 @@ class FcmSignalingClient(
             if (contact != null && contact.isOnlineLan && contact.ipAddress.isNotBlank()) {
                 Log.d(tag, "Attempting Priority 1 direct LAN dispatch to ${contact.name} at ${contact.ipAddress}:${contact.port}")
                 lanSuccess = lanSocketServer.sendPayload(contact.ipAddress, contact.port, payload)
+                if (!lanSuccess) {
+                    Log.w(tag, "LAN direct socket to ${contact.ipAddress}:${contact.port} failed. Marking contact ${contact.id} as offline on LAN.")
+                    contactRepository.updateLanStatus(contact.id, false, contact.ipAddress, contact.port)
+                }
             }
 
             // Priority 2: Bluetooth RFCOMM Direct Proximity (Zero WiFi router needed)

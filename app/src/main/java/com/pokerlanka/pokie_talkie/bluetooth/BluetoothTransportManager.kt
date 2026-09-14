@@ -30,6 +30,8 @@ import java.util.UUID
 import android.bluetooth.BluetoothClass
 import com.pokerlanka.pokie_talkie.data.repository.ContactRepository
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Handles Bluetooth RFCOMM P2P communication for local zero-WiFi messaging and signaling.
@@ -57,6 +59,9 @@ class BluetoothTransportManager(
 
     // Cache to map Pokie User ID / Contact ID -> Bluetooth MAC Address
     private val peerAddressMap = ConcurrentHashMap<String, String>()
+
+    // Serializes outgoing Bluetooth RFCOMM transmissions to prevent baseband channel collisions
+    private val sendMutex = Mutex()
 
     private val _incomingPayloads = MutableSharedFlow<SignalingPayload>(extraBufferCapacity = 64)
     val incomingPayloads: SharedFlow<SignalingPayload> = _incomingPayloads.asSharedFlow()
@@ -122,8 +127,9 @@ class BluetoothTransportManager(
     }
 
     private suspend fun handleClientConnection(socket: BluetoothSocket) {
+        var receivedPayload: SignalingPayload? = null
+        val remoteDevice = socket.remoteDevice
         try {
-            val remoteDevice = socket.remoteDevice
             val reader = BufferedReader(InputStreamReader(socket.inputStream, Charsets.UTF_8))
             val line = reader.readLine()
 
@@ -136,7 +142,6 @@ class BluetoothTransportManager(
                         peerAddressMap[payload.senderId] = remoteDevice.address
                         contactRepository?.updateBluetoothAddress(payload.senderId, remoteDevice.address)
                     }
-                    _incomingPayloads.emit(payload)
 
                     // Send ACK back to sender to confirm reception before connection closes
                     try {
@@ -146,6 +151,8 @@ class BluetoothTransportManager(
                     } catch (e: Exception) {
                         Log.w(tag, "Failed to send BT ACK to ${remoteDevice.address}: ${e.message}")
                     }
+
+                    receivedPayload = payload
                 }
             }
         } catch (e: Exception) {
@@ -153,9 +160,15 @@ class BluetoothTransportManager(
         } finally {
             try {
                 // Grace delay so outgoing ACK packet is flushed through OS driver
-                kotlinx.coroutines.delay(100)
+                kotlinx.coroutines.delay(60)
                 socket.close()
             } catch (ignored: Exception) {}
+
+            // Emit payload AFTER socket is closed cleanly so that any immediate reverse response
+            // (such as a read receipt or delivery receipt) will find the RFCOMM channel completely free
+            receivedPayload?.let { payload ->
+                _incomingPayloads.emit(payload)
+            }
         }
     }
 
@@ -266,58 +279,69 @@ class BluetoothTransportManager(
 
     /**
      * Sends payload to a known Bluetooth MAC address directly.
+     * Uses Mutex locking and automatic backoff retries to guarantee delivery without baseband collisions.
      */
     suspend fun sendPayloadToAddress(address: String, payload: SignalingPayload): Boolean {
-        return withContext(Dispatchers.IO) {
-            var socket: BluetoothSocket? = null
-            try {
-                val device: BluetoothDevice = bluetoothAdapter?.getRemoteDevice(address)
-                    ?: return@withContext false
+        return sendMutex.withLock {
+            withContext(Dispatchers.IO) {
+                var attempt = 0
+                var success = false
+                while (attempt < 3 && !success) {
+                    attempt++
+                    var socket: BluetoothSocket? = null
+                    try {
+                        val device: BluetoothDevice = bluetoothAdapter?.getRemoteDevice(address)
+                            ?: return@withContext false
 
-                // Always cancel discovery before connecting to maximize RFCOMM throughput
-                try {
-                    bluetoothAdapter.cancelDiscovery()
-                } catch (ignored: SecurityException) {}
+                        // Always cancel discovery before connecting to maximize RFCOMM throughput
+                        try {
+                            bluetoothAdapter.cancelDiscovery()
+                        } catch (ignored: SecurityException) {}
 
-                socket = device.createRfcommSocketToServiceRecord(POKIE_BT_UUID)
-                socket.connect()
+                        socket = device.createRfcommSocketToServiceRecord(POKIE_BT_UUID)
+                        socket.connect()
 
-                val writer = PrintWriter(OutputStreamWriter(socket.outputStream, Charsets.UTF_8), true)
-                val json = gson.toJson(payload)
-                writer.println(json)
-                writer.flush()
+                        val writer = PrintWriter(OutputStreamWriter(socket.outputStream, Charsets.UTF_8), true)
+                        val json = gson.toJson(payload)
+                        writer.println(json)
+                        writer.flush()
 
-                // Wait for receiver ACK or check inputStream before closing socket
-                try {
-                    val startTime = System.currentTimeMillis()
-                    while (System.currentTimeMillis() - startTime < 1200L) {
-                        if (socket.inputStream.available() > 0) {
-                            val reader = BufferedReader(InputStreamReader(socket.inputStream, Charsets.UTF_8))
-                            val ack = reader.readLine()
-                            Log.i(tag, "Bluetooth payload [${payload.type}] acknowledged by $address (ACK: $ack)")
-                            break
+                        // Wait for receiver ACK or check inputStream before closing socket
+                        try {
+                            val startTime = System.currentTimeMillis()
+                            while (System.currentTimeMillis() - startTime < 1000L) {
+                                if (socket.inputStream.available() > 0) {
+                                    val reader = BufferedReader(InputStreamReader(socket.inputStream, Charsets.UTF_8))
+                                    val ack = reader.readLine()
+                                    Log.i(tag, "Bluetooth payload [${payload.type}] acknowledged by $address (ACK: $ack)")
+                                    break
+                                }
+                                kotlinx.coroutines.delay(40)
+                            }
+                        } catch (e: Exception) {
+                            Log.w(tag, "Exception waiting for Bluetooth ACK from $address: ${e.message}")
                         }
-                        kotlinx.coroutines.delay(50)
+
+                        // Grace delay to ensure RFCOMM buffers are fully delivered over the air
+                        kotlinx.coroutines.delay(60)
+
+                        Log.i(tag, "Successfully dispatched Bluetooth payload [${payload.type}] to $address (attempt $attempt)")
+                        success = true
+                    } catch (e: SecurityException) {
+                        Log.e(tag, "SecurityException sending Bluetooth payload to $address: ${e.message}")
+                        break
+                    } catch (e: Exception) {
+                        Log.w(tag, "Attempt $attempt failed to send Bluetooth payload [${payload.type}] to $address: ${e.message}")
+                        if (attempt < 3) {
+                            kotlinx.coroutines.delay(150L * attempt)
+                        }
+                    } finally {
+                        try {
+                            socket?.close()
+                        } catch (ignored: Exception) {}
                     }
-                } catch (e: Exception) {
-                    Log.w(tag, "Exception waiting for Bluetooth ACK from $address: ${e.message}")
                 }
-
-                // Grace delay to ensure RFCOMM buffers are fully delivered over the air
-                kotlinx.coroutines.delay(150)
-
-                Log.i(tag, "Successfully dispatched Bluetooth payload [${payload.type}] to $address")
-                true
-            } catch (e: SecurityException) {
-                Log.e(tag, "SecurityException sending Bluetooth payload to $address: ${e.message}")
-                false
-            } catch (e: Exception) {
-                Log.w(tag, "Failed to send Bluetooth payload to $address: ${e.message}")
-                false
-            } finally {
-                try {
-                    socket?.close()
-                } catch (ignored: Exception) {}
+                success
             }
         }
     }

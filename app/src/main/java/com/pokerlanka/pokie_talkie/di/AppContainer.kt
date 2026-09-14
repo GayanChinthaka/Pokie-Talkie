@@ -347,12 +347,14 @@ class AppContainer(val context: Context) {
                         status = initialStatus
                     )
 
-                    // 1. Send Delivery Receipt immediately back to sender
-                    fcmSignalingClient.sendDeliveryReceipt(payload.senderId, messageId)
-
-                    // 2. If user currently has this chat screen open, also send Read Receipt immediately!
+                    // If user currently has this chat screen open, send Read Receipt directly!
+                    // Otherwise, send Delivery Receipt.
                     if (isChatCurrentlyOpen) {
+                        Log.d(tag, "Chat is currently open with ${payload.senderId}, sending READ_RECEIPT for $messageId")
                         fcmSignalingClient.sendReadReceipt(payload.senderId, listOf(messageId))
+                    } else {
+                        Log.d(tag, "Chat is closed with ${payload.senderId}, sending DELIVERY_RECEIPT for $messageId")
+                        fcmSignalingClient.sendDeliveryReceipt(payload.senderId, messageId)
                     }
                 }
 
@@ -371,9 +373,9 @@ class AppContainer(val context: Context) {
             }
 
             SignalingType.READ_RECEIPT -> {
-                val ids = payload.messageIds ?: listOfNotNull(payload.messageId)
+                val ids = (payload.messageIds ?: listOfNotNull(payload.messageId)).filter { it.isNotBlank() }
                 if (ids.isNotEmpty()) {
-                    Log.d(tag, "Received READ_RECEIPT for messages $ids from ${payload.senderName}")
+                    Log.i(tag, "Received READ_RECEIPT for messages $ids from ${payload.senderName}")
                     applicationScope.launch {
                         chatRepository.updateMessagesStatus(ids, MessageStatus.READ)
                     }
