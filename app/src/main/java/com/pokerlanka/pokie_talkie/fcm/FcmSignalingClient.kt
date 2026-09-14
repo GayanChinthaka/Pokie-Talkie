@@ -14,12 +14,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
+import kotlinx.coroutines.flow.firstOrNull
 import org.webrtc.SessionDescription
-import java.io.OutputStreamWriter
 import com.pokerlanka.pokie_talkie.bluetooth.BluetoothTransportManager
-import java.net.HttpURLConnection
-import java.net.URL
 
 class FcmSignalingClient(
     private val contactRepository: ContactRepository,
@@ -117,6 +114,23 @@ class FcmSignalingClient(
         dispatchPayload(targetId, payload)
     }
 
+    fun broadcastProfileUpdate(newName: String) {
+        val payload = SignalingPayload(
+            type = SignalingType.PROFILE_UPDATE,
+            senderId = myUserId,
+            senderName = newName,
+            targetId = ""
+        )
+        scope.launch(Dispatchers.IO) {
+            val contacts = contactRepository.getContacts().firstOrNull() ?: emptyList()
+            for (c in contacts) {
+                if (c.id != myUserId) {
+                    dispatchPayload(c.id, payload.copy(targetId = c.id))
+                }
+            }
+        }
+    }
+
     private fun dispatchPayload(targetId: String, payload: SignalingPayload) {
         scope.launch(Dispatchers.IO) {
             val contact = contactRepository.getContact(targetId)
@@ -124,88 +138,19 @@ class FcmSignalingClient(
 
             // Priority 1: Direct Local LAN Wi-Fi Socket
             if (contact != null && contact.isOnlineLan && contact.ipAddress.isNotBlank()) {
-                Log.d(tag, "Attempting direct LAN dispatch to ${contact.name} at ${contact.ipAddress}:${contact.port}")
+                Log.d(tag, "Attempting Priority 1 direct LAN dispatch to ${contact.name} at ${contact.ipAddress}:${contact.port}")
                 lanSuccess = lanSocketServer.sendPayload(contact.ipAddress, contact.port, payload)
             }
 
-            // Priority 2: Bluetooth RFCOMM Direct Proximity Fallback (Zero WiFi router needed)
+            // Priority 2: Bluetooth RFCOMM Direct Proximity (Zero WiFi router needed)
             var btSuccess = false
             if (!lanSuccess) {
-                Log.d(tag, "LAN delivery failed or offline. Attempting Priority 2 Bluetooth RFCOMM to $targetId")
+                Log.d(tag, "LAN delivery unavailable or offline. Attempting Priority 2 Bluetooth RFCOMM to $targetId (${contact?.name})")
                 btSuccess = bluetoothTransportManager.sendPayload(targetId, payload)
             }
 
-            // Priority 3: Cloud / Remote Push Fallback
             if (!lanSuccess && !btSuccess) {
-                val fcmToken = contact?.fcmToken
-                if (!fcmToken.isNullOrBlank()) {
-                    Log.d(tag, "LAN & Bluetooth unavailable. Attempting Priority 3 FCM push to token: $fcmToken")
-                    sendFcmPayload(fcmToken, payload)
-                } else {
-                    Log.w(tag, "Target $targetId unreachable on LAN or Bluetooth and has no known FCM token")
-                }
-            }
-        }
-    }
-
-    private suspend fun sendFcmPayload(fcmToken: String, payload: SignalingPayload) {
-        withContext(Dispatchers.IO) {
-            try {
-                val serverKey = userPreferencesManager.getFcmServerKey()
-                if (serverKey.isNullOrBlank()) {
-                    Log.w(
-                        tag,
-                        "FCM Server Key is not set in Settings. Please add your Firebase Cloud Messaging Server Key in Settings -> About & Network to enable remote push when the app is closed."
-                    )
-                    return@withContext
-                }
-
-                val url = URL("https://fcm.googleapis.com/fcm/send")
-                val conn = (url.openConnection() as HttpURLConnection).apply {
-                    requestMethod = "POST"
-                    setRequestProperty("Content-Type", "application/json; UTF-8")
-                    setRequestProperty("Authorization", "key=$serverKey")
-                    doOutput = true
-                    connectTimeout = 8000
-                    readTimeout = 8000
-                }
-
-                val payloadJson = gson.toJson(payload)
-
-                val rootJson = JSONObject().apply {
-                    put("to", fcmToken)
-                    put("priority", "high")
-                    put("content_available", true)
-                    put("time_to_live", 120) // 2 minutes
-
-                    val dataObj = JSONObject().apply {
-                        put("payload", payloadJson)
-                        put("type", payload.type.name)
-                        put("senderId", payload.senderId)
-                        put("senderName", payload.senderName)
-                        put("callId", payload.callId ?: "")
-                        put("callType", payload.callType?.name ?: "VOICE")
-                        payload.sdp?.let { put("sdp", it) }
-                        payload.messageContent?.let { put("content", it) }
-                    }
-                    put("data", dataObj)
-                }
-
-                OutputStreamWriter(conn.outputStream, "UTF-8").use { writer ->
-                    writer.write(rootJson.toString())
-                    writer.flush()
-                }
-
-                val responseCode = conn.responseCode
-                if (responseCode in 200..299) {
-                    val response = conn.inputStream.bufferedReader().use { it.readText() }
-                    Log.i(tag, "FCM Cloud push dispatched successfully (HTTP $responseCode): $response")
-                } else {
-                    val errorResponse = conn.errorStream?.bufferedReader()?.use { it.readText() }
-                    Log.e(tag, "FCM Cloud push failed (HTTP $responseCode): $errorResponse")
-                }
-            } catch (e: Exception) {
-                Log.e(tag, "Error sending FCM payload to $fcmToken: ${e.message}", e)
+                Log.w(tag, "Dispatch failed: Peer $targetId unreachable on LAN Wi-Fi and Bluetooth")
             }
         }
     }

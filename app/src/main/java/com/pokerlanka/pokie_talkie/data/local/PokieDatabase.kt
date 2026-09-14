@@ -16,6 +16,9 @@ import com.pokerlanka.pokie_talkie.data.model.CallType
 import com.pokerlanka.pokie_talkie.data.model.MessageStatus
 import com.pokerlanka.pokie_talkie.data.model.MessageType
 
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
+
 class PokieTypeConverters {
     @TypeConverter
     fun fromMessageType(value: MessageType): String = value.name
@@ -54,7 +57,7 @@ class PokieTypeConverters {
         ContactEntity::class,
         CallLogEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(PokieTypeConverters::class)
@@ -67,13 +70,22 @@ abstract class PokieDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: PokieDatabase? = null
 
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE contacts ADD COLUMN bluetoothAddress TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         fun getInstance(context: Context): PokieDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     PokieDatabase::class.java,
                     "pokie_talkie.db"
-                ).fallbackToDestructiveMigration().build()
+                )
+                    .addMigrations(MIGRATION_1_2)
+                    .fallbackToDestructiveMigration()
+                    .build()
                 INSTANCE = instance
                 instance
             }

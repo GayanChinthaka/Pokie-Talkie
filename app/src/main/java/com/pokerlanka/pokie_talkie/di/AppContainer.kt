@@ -62,7 +62,7 @@ class AppContainer(val context: Context) {
     // Networking, Bluetooth & Proximity Transport
     val lanSocketServer by lazy { LanSocketServer(applicationScope) }
     val lanDiscoveryManager by lazy { LanDiscoveryManager(context, contactRepository, applicationScope) }
-    val bluetoothTransportManager by lazy { BluetoothTransportManager(context, applicationScope) }
+    val bluetoothTransportManager by lazy { BluetoothTransportManager(context, applicationScope, contactRepository) }
     val bluetoothVoiceManager by lazy { BluetoothVoiceManager(context, applicationScope, bluetoothTransportManager.bluetoothAdapter) }
     val wifiDirectManager by lazy {
         WifiDirectManager(context) { peerIp, isGroupOwner ->
@@ -115,6 +115,7 @@ class AppContainer(val context: Context) {
     fun updateMyProfileName(newName: String) {
         userPreferencesManager.setUserName(newName)
         lanDiscoveryManager.updateProfileName(newName)
+        fcmSignalingClient.broadcastProfileUpdate(newName)
     }
 
     suspend fun addManualContact(name: String, ipAddress: String, port: Int = 52220, fcmToken: String = "") {
@@ -142,28 +143,6 @@ class AppContainer(val context: Context) {
         val savedFcmToken = userPreferencesManager.getFcmToken()
         lanDiscoveryManager.initialize(currentUserId, currentUserName, lanSocketServer.serverPort, savedFcmToken)
         lanDiscoveryManager.startDiscoveryAndRegistration()
-
-        // Fetch real FCM Token
-        try {
-            FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
-                if (task.isSuccessful) {
-                    val token = task.result
-                    if (!token.isNullOrBlank()) {
-                        Log.i(tag, "Real FCM Token retrieved: $token")
-                        userPreferencesManager.setFcmToken(token)
-                        lanDiscoveryManager.updateFcmToken(token)
-                        applicationScope.launch {
-                            contactRepository.updateFcmToken(currentUserId, token)
-                        }
-                    }
-                } else {
-                    Log.w(tag, "Fetching FCM token failed: ${task.exception?.message}")
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(tag, "Error accessing FirebaseMessaging: ${e.message}")
-        }
-
         // Setup WebRTC Callbacks
         setupWebRtcCallbacks()
 
@@ -343,6 +322,15 @@ class AppContainer(val context: Context) {
                     Log.d(tag, "Received READ_RECEIPT for messages $ids from ${payload.senderName}")
                     applicationScope.launch {
                         chatRepository.updateMessagesStatus(ids, MessageStatus.READ)
+                    }
+                }
+            }
+
+            SignalingType.PROFILE_UPDATE -> {
+                Log.d(tag, "Received PROFILE_UPDATE from ${payload.senderId}: '${payload.senderName}'")
+                if (payload.senderName.isNotBlank()) {
+                    applicationScope.launch {
+                        contactRepository.updateContactName(payload.senderId, payload.senderName)
                     }
                 }
             }

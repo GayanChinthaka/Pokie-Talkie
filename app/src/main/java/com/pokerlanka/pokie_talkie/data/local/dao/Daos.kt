@@ -78,6 +78,12 @@ interface ContactDao {
     @Query("UPDATE contacts SET isOnlineLan = 0")
     suspend fun resetAllLanStatus()
 
+    @Query("UPDATE contacts SET name = :newName WHERE id = :id")
+    suspend fun updateContactName(id: String, newName: String)
+
+    @Query("UPDATE contacts SET bluetoothAddress = :btAddress WHERE id = :id")
+    suspend fun updateBluetoothAddress(id: String, btAddress: String)
+
     @Query("UPDATE contacts SET fcmToken = :token WHERE id = :id")
     suspend fun updateFcmToken(id: String, token: String)
 

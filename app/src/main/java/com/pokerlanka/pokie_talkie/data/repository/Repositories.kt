@@ -141,6 +141,14 @@ class ContactRepository(
         contactDao.insertOrUpdateContact(contact.toEntity())
     }
 
+    suspend fun updateContactName(id: String, newName: String) {
+        contactDao.updateContactName(id, newName)
+    }
+
+    suspend fun updateBluetoothAddress(id: String, btAddress: String) {
+        contactDao.updateBluetoothAddress(id, btAddress)
+    }
+
     suspend fun updateFcmToken(id: String, token: String) {
         contactDao.updateFcmToken(id, token)
     }
@@ -159,6 +167,7 @@ class ContactRepository(
         fcmToken = fcmToken,
         ipAddress = ipAddress,
         port = port,
+        bluetoothAddress = bluetoothAddress,
         isOnlineLan = isOnlineLan,
         avatarColor = avatarColor,
         lastSeenTimestamp = lastSeenTimestamp
@@ -170,6 +179,7 @@ class ContactRepository(
         fcmToken = fcmToken,
         ipAddress = ipAddress,
         port = port,
+        bluetoothAddress = bluetoothAddress,
         isOnlineLan = isOnlineLan,
         avatarColor = avatarColor,
         lastSeenTimestamp = lastSeenTimestamp

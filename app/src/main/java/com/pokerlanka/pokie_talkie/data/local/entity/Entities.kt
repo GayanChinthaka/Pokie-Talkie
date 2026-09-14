@@ -28,6 +28,7 @@ data class ContactEntity(
     val fcmToken: String,
     val ipAddress: String,
     val port: Int,
+    val bluetoothAddress: String = "",
     val isOnlineLan: Boolean,
     val avatarColor: Long,
     val lastSeenTimestamp: Long

@@ -85,9 +85,26 @@ class TelecomCallManager(
         val isScreenOffOrLocked = (keyguardManager?.isKeyguardLocked == true) || (powerManager?.isInteractive == false)
         val isForeground = com.pokerlanka.pokie_talkie.PokieApp.isAppInForeground
 
+        PokieLocalService.notifyCallStarted(context)
+
         if (isScreenOffOrLocked) {
             // Wake screen & CPU so lockscreen full-screen activity can be displayed immediately
             wakeUpScreen()
+            try {
+                val directIntent = Intent(context, IncomingCallActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                            Intent.FLAG_ACTIVITY_NO_USER_ACTION
+                    putExtra(EXTRA_PEER_ID, callerId)
+                    putExtra(EXTRA_PEER_NAME, callerName)
+                    putExtra(EXTRA_CALL_TYPE, callType.name)
+                    putExtra(EXTRA_CALL_ID, callId)
+                }
+                context.startActivity(directIntent)
+                Log.i(tag, "Directly launched IncomingCallActivity on lockscreen/screen off")
+            } catch (e: Exception) {
+                Log.w(tag, "Direct startActivity for lockscreen incoming call failed: ${e.message}")
+            }
         }
 
         val session = CallSession(
@@ -119,8 +136,6 @@ class TelecomCallManager(
         } catch (e: Exception) {
             Log.e(tag, "TelecomManager addNewIncomingCall failed: ${e.message}")
         }
-
-        PokieLocalService.notifyCallStarted(context)
 
         // - In-App: App is in foreground -> Compose UI navigates to full-screen CallScreen without top notification banner
         // - Minimized / Locked: Heads-up notification or Full-screen lockscreen activity

@@ -1,5 +1,6 @@
 package com.pokerlanka.pokie_talkie.ui.settings
 
+import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -27,6 +28,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
@@ -107,16 +109,12 @@ fun SettingsScreen(
     val avatarColor by viewModel.avatarColor.collectAsState()
     val themeMode by viewModel.themeMode.collectAsState()
     val profileImagePath by viewModel.profileImagePath.collectAsState()
-    val fcmToken by viewModel.fcmToken.collectAsState()
-    val fcmServerKey by viewModel.fcmServerKey.collectAsState()
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
 
     var showEditNameDialog by remember { mutableStateOf(false) }
     var showPhotoOptionsDialog by remember { mutableStateOf(false) }
-    var showEditFcmServerKeyDialog by remember { mutableStateOf(false) }
     var editNameInput by remember(userName) { mutableStateOf(userName) }
-    var editFcmServerKeyInput by remember(fcmServerKey) { mutableStateOf(fcmServerKey ?: "") }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -432,51 +430,35 @@ fun SettingsScreen(
                         Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)))
                         Spacer(modifier = Modifier.height(4.dp))
 
-                        // Device FCM Token Display
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "Device Cloud Token (FCM)",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 13.sp
-                                )
-                                if (fcmToken.isNotBlank()) {
-                                    IconButton(
-                                        onClick = {
-                                            clipboardManager.setText(AnnotatedString(fcmToken))
-                                            Toast.makeText(context, "FCM Token copied to clipboard!", Toast.LENGTH_SHORT).show()
-                                        },
-                                        modifier = Modifier.size(28.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.ContentCopy,
-                                            contentDescription = "Copy FCM Token",
-                                            tint = PokieEmerald,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-                                }
-                            }
-                            Text(
-                                text = if (fcmToken.isNotBlank()) fcmToken.take(24) + "..." + fcmToken.takeLast(8) else "Acquiring token from Firebase...",
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 12.sp
-                            )
-                        }
+                        // Proximity Mesh Info
+                        InfoRow(
+                            label = "Proximity Routing",
+                            value = "Priority 1: LAN Wi-Fi -> Priority 2: Bluetooth RFCOMM"
+                        )
+                        InfoRow(
+                            label = "Internet & Cloud",
+                            value = "Disabled (100% Local Proximity Mesh)"
+                        )
 
-                        // FCM Server Key Setting (App-Closed Remote Push)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)))
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        // App Permissions & Lock Screen Setting Button
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(8.dp))
                                 .clickable {
-                                    editFcmServerKeyInput = fcmServerKey ?: ""
-                                    showEditFcmServerKeyDialog = true
+                                    try {
+                                        val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                            data = Uri.fromParts("package", context.packageName, null)
+                                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                        }
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Unable to open app settings", Toast.LENGTH_SHORT).show()
+                                    }
                                 }
                                 .padding(vertical = 4.dp)
                         ) {
@@ -487,20 +469,20 @@ fun SettingsScreen(
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "FCM Server Key (App-Closed Push)",
+                                        text = "Permissions & Lock Screen",
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         fontSize = 13.sp
                                     )
                                     Text(
-                                        text = if (!fcmServerKey.isNullOrBlank()) "Configured (Cloud Push Active)" else "Not Configured (Tap to add key)",
-                                        color = if (!fcmServerKey.isNullOrBlank()) PokieEmerald else PokieTextSecondary,
+                                        text = "Open App Settings (Required for MIUI / HyperOS Lock Screen Calls)",
+                                        color = PokieEmerald,
                                         fontWeight = FontWeight.SemiBold,
-                                        fontSize = 13.sp
+                                        fontSize = 12.sp
                                     )
                                 }
                                 Icon(
-                                    imageVector = Icons.Default.Edit,
-                                    contentDescription = "Configure Key",
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                    contentDescription = "Open Settings",
                                     tint = PokieEmerald,
                                     modifier = Modifier.size(18.dp)
                                 )
@@ -567,74 +549,6 @@ fun SettingsScreen(
         )
     }
 
-    // Edit FCM Server Key Dialog
-    if (showEditFcmServerKeyDialog) {
-        AlertDialog(
-            onDismissRequest = { showEditFcmServerKeyDialog = false },
-            title = {
-                Text(
-                    text = "Firebase Server Key",
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontWeight = FontWeight.Bold
-                )
-            },
-            text = {
-                Column {
-                    Text(
-                        text = "Allows sending high-priority Cloud Push to wake up peers when their app is closed/killed.\n(From Firebase Console -> Project Settings -> Cloud Messaging -> Cloud Messaging API / Server Key)",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp,
-                        lineHeight = 16.sp
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = editFcmServerKeyInput,
-                        onValueChange = { editFcmServerKeyInput = it },
-                        placeholder = { Text("Paste FCM Server Key (AAAA...)") },
-                        singleLine = false,
-                        maxLines = 3,
-                        colors = TextFieldDefaults.colors(
-                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.updateFcmServerKey(editFcmServerKeyInput.trim())
-                        showEditFcmServerKeyDialog = false
-                        Toast.makeText(context, "FCM Server Key saved!", Toast.LENGTH_SHORT).show()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = PokieEmerald)
-                ) {
-                    Text("Save", color = Color.White)
-                }
-            },
-            dismissButton = {
-                Row {
-                    if (!fcmServerKey.isNullOrBlank()) {
-                        TextButton(
-                            onClick = {
-                                viewModel.updateFcmServerKey(null)
-                                editFcmServerKeyInput = ""
-                                showEditFcmServerKeyDialog = false
-                                Toast.makeText(context, "FCM Server Key cleared", Toast.LENGTH_SHORT).show()
-                            }
-                        ) {
-                            Text("Clear", color = MaterialTheme.colorScheme.error)
-                        }
-                    }
-                    TextButton(onClick = { showEditFcmServerKeyDialog = false }) {
-                        Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            },
-            containerColor = MaterialTheme.colorScheme.surface
-        )
-    }
 
     // Photo Options Dialog
     if (showPhotoOptionsDialog) {

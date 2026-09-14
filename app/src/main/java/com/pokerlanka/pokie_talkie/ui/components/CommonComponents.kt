@@ -33,7 +33,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Wifi
@@ -169,14 +169,14 @@ fun LanStatusBadge(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = if (isOnlineLan) Icons.Default.Wifi else Icons.Default.Cloud,
+                imageVector = if (isOnlineLan) Icons.Default.Wifi else Icons.Default.Sensors,
                 contentDescription = null,
                 tint = badgeContentColor,
                 modifier = Modifier.size(13.dp)
             )
             Spacer(modifier = Modifier.width(4.dp))
             Text(
-                text = if (isOnlineLan) "LAN Active" else "Cloud (FCM)",
+                text = if (isOnlineLan) "LAN Active" else "Bluetooth Proximity",
                 color = badgeContentColor,
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.SemiBold

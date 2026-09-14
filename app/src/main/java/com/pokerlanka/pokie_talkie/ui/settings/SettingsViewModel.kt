@@ -14,8 +14,6 @@ class SettingsViewModel(
     val avatarColor: StateFlow<Long> = appContainer.userPreferencesManager.avatarColorFlow
     val themeMode: StateFlow<AppThemeMode> = appContainer.userPreferencesManager.themeModeFlow
     val profileImagePath: StateFlow<String?> = appContainer.userPreferencesManager.profileImagePathFlow
-    val fcmToken: StateFlow<String> = appContainer.userPreferencesManager.fcmTokenFlow
-    val fcmServerKey: StateFlow<String?> = appContainer.userPreferencesManager.fcmServerKeyFlow
 
     val userId: String get() = appContainer.currentUserId
 
@@ -23,10 +21,6 @@ class SettingsViewModel(
         if (name.isNotBlank()) {
             appContainer.updateMyProfileName(name.trim())
         }
-    }
-
-    fun updateFcmServerKey(key: String?) {
-        appContainer.userPreferencesManager.setFcmServerKey(key)
     }
 
     fun updateAvatarColor(color: Long) {

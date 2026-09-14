@@ -49,6 +49,8 @@ enum class SignalingType {
     DELIVERY_RECEIPT,
     @SerializedName("read_receipt")
     READ_RECEIPT,
+    @SerializedName("profile_update")
+    PROFILE_UPDATE,
     @SerializedName("ping")
     PING
 }
@@ -59,6 +61,7 @@ data class Contact(
     val fcmToken: String = "",
     val ipAddress: String = "",
     val port: Int = 52220,
+    val bluetoothAddress: String = "",
     val isOnlineLan: Boolean = false,
     val avatarColor: Long = 0xFF00A884,
     val lastSeenTimestamp: Long = System.currentTimeMillis()

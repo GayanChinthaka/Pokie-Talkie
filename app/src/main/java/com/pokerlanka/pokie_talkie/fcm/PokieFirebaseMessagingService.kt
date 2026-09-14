@@ -185,6 +185,15 @@ class PokieFirebaseMessagingService : FirebaseMessagingService() {
                 }
             }
 
+            SignalingType.PROFILE_UPDATE -> {
+                Log.d(tag, "Received PROFILE_UPDATE from ${payload.senderId}: '${payload.senderName}'")
+                if (payload.senderName.isNotBlank()) {
+                    scope.launch {
+                        container.contactRepository.updateContactName(payload.senderId, payload.senderName)
+                    }
+                }
+            }
+
             SignalingType.PING -> {
                 Log.d(tag, "Received PING payload from ${payload.senderName}")
             }

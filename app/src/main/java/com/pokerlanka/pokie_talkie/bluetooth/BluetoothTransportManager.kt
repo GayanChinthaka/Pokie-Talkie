@@ -27,6 +27,8 @@ import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.io.PrintWriter
 import java.util.UUID
+import android.bluetooth.BluetoothClass
+import com.pokerlanka.pokie_talkie.data.repository.ContactRepository
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -36,6 +38,7 @@ import java.util.concurrent.ConcurrentHashMap
 class BluetoothTransportManager(
     private val context: Context,
     private val scope: CoroutineScope,
+    var contactRepository: ContactRepository? = null,
     private val gson: Gson = Gson()
 ) {
     private val tag = "PokieBluetooth"
@@ -131,6 +134,7 @@ class BluetoothTransportManager(
                     // Record sender's Bluetooth MAC address for future responses
                     if (payload.senderId.isNotBlank()) {
                         peerAddressMap[payload.senderId] = remoteDevice.address
+                        contactRepository?.updateBluetoothAddress(payload.senderId, remoteDevice.address)
                     }
                     _incomingPayloads.emit(payload)
                 }
@@ -156,22 +160,61 @@ class BluetoothTransportManager(
 
             var address = peerAddressMap[targetId]
 
-            // If not found in memory, scan paired devices for matching name or ID
+            val contact = contactRepository?.getContact(targetId)
+
+            // 1. Check stored bluetooth address in contact record
+            if (address.isNullOrBlank()) {
+                val storedAddr = contact?.bluetoothAddress
+                if (!storedAddr.isNullOrBlank()) {
+                    address = storedAddr
+                    peerAddressMap[targetId] = storedAddr
+                }
+            }
+
+            // 2. If not found in memory, scan paired devices for matching name or ID
             if (address.isNullOrBlank()) {
                 val paired = getPairedDevices()
-                val match = paired.find { it.name.equals(targetId, ignoreCase = true) || it.address.equals(targetId, ignoreCase = true) }
+                val targetName = contact?.name?.trim() ?: targetId.trim()
+
+                val match = paired.find { device ->
+                    val dName = try { device.name ?: "" } catch (e: Exception) { "" }
+                    val dAddr = device.address ?: ""
+                    dAddr.equals(targetId, ignoreCase = true) ||
+                    dName.equals(targetName, ignoreCase = true) ||
+                    (targetName.isNotBlank() && dName.contains(targetName, ignoreCase = true)) ||
+                    (dName.isNotBlank() && targetName.contains(dName, ignoreCase = true))
+                }
+
                 if (match != null) {
-                    address = match.address
-                    peerAddressMap[targetId] = address
-                } else if (paired.size == 1) {
-                    // If exactly 1 paired device exists, use it as fallback target
-                    address = paired.first().address
-                    peerAddressMap[targetId] = address
+                    val matchedAddress = match.address
+                    address = matchedAddress
+                    peerAddressMap[targetId] = matchedAddress
+                    val cId = contact?.id
+                    if (cId != null && matchedAddress != null) {
+                        contactRepository?.updateBluetoothAddress(cId, matchedAddress)
+                    }
+                    Log.i(tag, "Matched target '$targetName' ($targetId) to paired Bluetooth device: ${match.name} ($matchedAddress)")
+                } else if (paired.isNotEmpty()) {
+                    val phoneDevice = paired.find { device ->
+                        try {
+                            device.bluetoothClass?.majorDeviceClass == BluetoothClass.Device.Major.PHONE
+                        } catch (e: Exception) {
+                            false
+                        }
+                    }
+                    if (phoneDevice != null) {
+                        address = phoneDevice.address
+                        peerAddressMap[targetId] = address
+                        Log.i(tag, "Selected paired phone device as Bluetooth fallback: ${phoneDevice.name} ($address)")
+                    } else if (paired.size == 1) {
+                        address = paired.first().address
+                        peerAddressMap[targetId] = address
+                    }
                 }
             }
 
             if (address.isNullOrBlank()) {
-                Log.w(tag, "No known Bluetooth address for target peer: $targetId")
+                Log.w(tag, "No known Bluetooth address for target peer: $targetId (${contact?.name})")
                 return@withContext false
             }
 
