@@ -21,7 +21,7 @@ import com.pokerlanka.pokie_talkie.bluetooth.BluetoothTransportManager
 class FcmSignalingClient(
     private val contactRepository: ContactRepository,
     private val lanSocketServer: LanSocketServer,
-    private val bluetoothTransportManager: BluetoothTransportManager,
+    val bluetoothTransportManager: BluetoothTransportManager,
     private val userPreferencesManager: UserPreferencesManager,
     private val scope: CoroutineScope,
     private val myUserId: String,
@@ -38,7 +38,21 @@ class FcmSignalingClient(
             targetId = targetId,
             callId = callId,
             callType = callType,
-            sdp = sdp.description
+            sdp = sdp.description,
+            isBluetoothVoice = false
+        )
+        dispatchPayload(targetId, payload)
+    }
+
+    fun sendBluetoothCallOffer(targetId: String, callerName: String, callId: String) {
+        val payload = SignalingPayload(
+            type = SignalingType.OFFER,
+            senderId = myUserId,
+            senderName = callerName.ifBlank { myUserName },
+            targetId = targetId,
+            callId = callId,
+            callType = CallType.VOICE,
+            isBluetoothVoice = true
         )
         dispatchPayload(targetId, payload)
     }
@@ -50,7 +64,21 @@ class FcmSignalingClient(
             senderName = myUserName,
             targetId = targetId,
             callId = callId,
-            sdp = sdp.description
+            sdp = sdp.description,
+            isBluetoothVoice = false
+        )
+        dispatchPayload(targetId, payload)
+    }
+
+    fun sendBluetoothCallAnswer(targetId: String, callId: String) {
+        val payload = SignalingPayload(
+            type = SignalingType.ANSWER,
+            senderId = myUserId,
+            senderName = myUserName,
+            targetId = targetId,
+            callId = callId,
+            callType = CallType.VOICE,
+            isBluetoothVoice = true
         )
         dispatchPayload(targetId, payload)
     }

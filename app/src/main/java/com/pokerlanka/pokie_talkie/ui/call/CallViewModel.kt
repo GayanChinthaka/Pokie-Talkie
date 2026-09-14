@@ -11,10 +11,13 @@ import com.pokerlanka.pokie_talkie.fcm.FcmSignalingClient
 import com.pokerlanka.pokie_talkie.telecom.PokieConnectionService
 import com.pokerlanka.pokie_talkie.telecom.TelecomCallManager
 import com.pokerlanka.pokie_talkie.webrtc.WebRtcManager
+import com.pokerlanka.pokie_talkie.bluetooth.BluetoothVoiceManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -25,17 +28,37 @@ class CallViewModel(
     private val callRepository: CallRepository,
     val webRtcManager: WebRtcManager,
     private val fcmSignalingClient: FcmSignalingClient,
-    private val telecomCallManager: TelecomCallManager
+    private val telecomCallManager: TelecomCallManager,
+    val bluetoothVoiceManager: BluetoothVoiceManager
 ) : ViewModel() {
 
     val currentCall: StateFlow<CallSession?> = callRepository.currentCall
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    private val _btMuted = MutableStateFlow(false)
+    private val _btSpeakerOn = MutableStateFlow(false)
+
     val localVideoTrack: StateFlow<VideoTrack?> = webRtcManager.localVideoTrackFlow
     val remoteVideoTrack: StateFlow<VideoTrack?> = webRtcManager.remoteVideoTrackFlow
-    val isMuted: StateFlow<Boolean> = webRtcManager.isAudioMuted
+
+    val isMuted: StateFlow<Boolean> = combine(
+        webRtcManager.isAudioMuted,
+        _btMuted,
+        callRepository.currentCall
+    ) { webrtcMuted, btMuted, session ->
+        if (session?.isBluetoothVoice == true) btMuted else webrtcMuted
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     val isVideoEnabled: StateFlow<Boolean> = webRtcManager.isVideoEnabled
-    val isSpeakerOn: StateFlow<Boolean> = webRtcManager.isSpeakerOn
+
+    val isSpeakerOn: StateFlow<Boolean> = combine(
+        webRtcManager.isSpeakerOn,
+        _btSpeakerOn,
+        callRepository.currentCall
+    ) { webrtcSpeaker, btSpeaker, session ->
+        if (session?.isBluetoothVoice == true) btSpeaker else webrtcSpeaker
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     val isCallConnected: StateFlow<Boolean> = webRtcManager.isCallConnected
 
     val eglBaseContext: EglBase.Context = webRtcManager.eglBase.eglBaseContext
@@ -81,19 +104,34 @@ class CallViewModel(
 
     fun answerCall() {
         val session = currentCall.value
-        val callType = session?.callType ?: CallType.VOICE
-        val activeConn = PokieConnectionService.activeConnection
-        if (activeConn != null) {
-            activeConn.onAnswer(0)
-        } else {
+        val isBt = session?.isBluetoothVoice == true
+        if (isBt) {
             callRepository.updateCallState(CallState.CONNECTED)
-            webRtcManager.answerIncomingCall(callType)
+            session?.peerId?.let { peerId ->
+                fcmSignalingClient.sendBluetoothCallAnswer(peerId, session.callId)
+            }
+            bluetoothVoiceManager.startVoiceServer()
+        } else {
+            val callType = session?.callType ?: CallType.VOICE
+            val activeConn = PokieConnectionService.activeConnection
+            if (activeConn != null) {
+                activeConn.onAnswer(0)
+            } else {
+                callRepository.updateCallState(CallState.CONNECTED)
+                webRtcManager.answerIncomingCall(callType)
+            }
         }
         telecomCallManager.dismissCallNotification()
     }
 
     fun toggleMute() {
-        webRtcManager.toggleAudioMute()
+        val session = currentCall.value
+        if (session?.isBluetoothVoice == true) {
+            bluetoothVoiceManager.isMuted = !bluetoothVoiceManager.isMuted
+            _btMuted.value = bluetoothVoiceManager.isMuted
+        } else {
+            webRtcManager.toggleAudioMute()
+        }
     }
 
     fun toggleVideo() {
@@ -101,7 +139,14 @@ class CallViewModel(
     }
 
     fun toggleSpeaker() {
-        webRtcManager.toggleSpeaker()
+        val session = currentCall.value
+        if (session?.isBluetoothVoice == true) {
+            val nextSpeaker = !_btSpeakerOn.value
+            bluetoothVoiceManager.setSpeakerphone(nextSpeaker)
+            _btSpeakerOn.value = nextSpeaker
+        } else {
+            webRtcManager.toggleSpeaker()
+        }
     }
 
     fun switchCamera() {
@@ -113,7 +158,11 @@ class CallViewModel(
         if (session != null) {
             fcmSignalingClient.sendHangup(session.peerId, session.callId)
         }
-        webRtcManager.endCall()
+        if (session?.isBluetoothVoice == true) {
+            bluetoothVoiceManager.stopDuplexAudio()
+        } else {
+            webRtcManager.endCall()
+        }
         PokieConnectionService.activeConnection?.markDisconnected()
         telecomCallManager.dismissCallNotification()
         viewModelScope.launch {
@@ -131,11 +180,12 @@ class CallViewModel(
             callRepository: CallRepository,
             webRtcManager: WebRtcManager,
             fcmSignalingClient: FcmSignalingClient,
-            telecomCallManager: TelecomCallManager
+            telecomCallManager: TelecomCallManager,
+            bluetoothVoiceManager: BluetoothVoiceManager
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return CallViewModel(callRepository, webRtcManager, fcmSignalingClient, telecomCallManager) as T
+                return CallViewModel(callRepository, webRtcManager, fcmSignalingClient, telecomCallManager, bluetoothVoiceManager) as T
             }
         }
     }

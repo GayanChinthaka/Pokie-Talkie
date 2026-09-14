@@ -110,7 +110,10 @@ fun ChatScreen(
                                 fontWeight = FontWeight.SemiBold,
                                 style = MaterialTheme.typography.titleMedium
                             )
-                            LanStatusBadge(isOnlineLan = contact?.isOnlineLan == true)
+                            LanStatusBadge(
+                                isOnlineLan = contact?.isOnlineLan == true,
+                                bluetoothAddress = contact?.bluetoothAddress
+                            )
                         }
                     }
                 },
@@ -136,8 +139,10 @@ fun ChatScreen(
                     }
 
                     IconButton(onClick = {
-                        viewModel.initiateCall(CallType.VIDEO)
-                        contact?.id?.let { onNavigateToCall(it, CallType.VIDEO) }
+                        val isLan = contact?.isOnlineLan == true
+                        val type = if (isLan) CallType.VIDEO else CallType.VOICE
+                        viewModel.initiateCall(type)
+                        contact?.id?.let { onNavigateToCall(it, type) }
                     }) {
                         Icon(
                             imageVector = Icons.Default.Videocam,

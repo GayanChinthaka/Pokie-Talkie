@@ -235,16 +235,27 @@ class LanDiscoveryManager(
                 val peerUserId = attributes["userId"]?.let { String(it) } ?: service.serviceName.removePrefix("Pokie_")
                 val peerUserName = attributes["userName"]?.let { String(it) } ?: service.serviceName
                 val peerBtAddress = attributes["btAddress"]?.let { String(it) } ?: ""
+                val peerBtName = attributes["btName"]?.let { String(it) } ?: ""
 
                 if (peerUserId == myUserId) return
 
                 val ipAddress = host?.hostAddress ?: return
 
-                Log.i(tag, "Resolved peer $peerUserName ($peerUserId) at $ipAddress:$port [btAddress: $peerBtAddress]")
+                Log.i(tag, "Resolved peer $peerUserName ($peerUserId) at $ipAddress:$port [btAddress: $peerBtAddress, btName: $peerBtName]")
 
                 scope.launch(Dispatchers.IO) {
                     val existing = contactRepository.getContact(peerUserId)
-                    val resolvedBt = peerBtAddress.ifBlank { existing?.bluetoothAddress ?: "" }
+                    val btManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
+                    val pairedMatch = try {
+                        btManager?.adapter?.bondedDevices?.find { device ->
+                            val dName = try { device.name ?: "" } catch (e: Exception) { "" }
+                            dName.equals(peerUserName, ignoreCase = true) ||
+                            (peerBtName.isNotBlank() && dName.equals(peerBtName, ignoreCase = true))
+                        }
+                    } catch (e: SecurityException) {
+                        null
+                    }
+                    val resolvedBt = peerBtAddress.ifBlank { pairedMatch?.address ?: existing?.bluetoothAddress ?: "" }
 
                     val updatedPeer = Contact(
                         id = peerUserId,

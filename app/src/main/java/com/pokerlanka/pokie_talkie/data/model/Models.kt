@@ -113,6 +113,8 @@ data class SignalingPayload(
     val messageContent: String? = null,
     @SerializedName("messageType")
     val messageType: MessageType? = null,
+    @SerializedName("isBluetoothVoice")
+    val isBluetoothVoice: Boolean = false,
     @SerializedName("timestamp")
     val timestamp: Long = System.currentTimeMillis()
 )
@@ -125,6 +127,7 @@ data class CallSession(
     val isIncoming: Boolean,
     val state: CallState = CallState.IDLE,
     val durationSeconds: Long = 0L,
+    val isBluetoothVoice: Boolean = false,
     val startTimestamp: Long = System.currentTimeMillis()
 )
 

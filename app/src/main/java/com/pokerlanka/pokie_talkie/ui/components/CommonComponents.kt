@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Check
@@ -154,10 +155,30 @@ fun AvatarView(
 @Composable
 fun LanStatusBadge(
     isOnlineLan: Boolean,
+    bluetoothAddress: String? = null,
     modifier: Modifier = Modifier
 ) {
-    val badgeBg = if (isOnlineLan) PokieEmerald.copy(alpha = 0.15f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f)
-    val badgeContentColor = if (isOnlineLan) PokieEmerald else MaterialTheme.colorScheme.onSurfaceVariant
+    val isBtReady = !bluetoothAddress.isNullOrBlank()
+    val badgeBg = when {
+        isOnlineLan -> PokieEmerald.copy(alpha = 0.15f)
+        isBtReady -> androidx.compose.ui.graphics.Color(0xFF2979FF).copy(alpha = 0.15f)
+        else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f)
+    }
+    val badgeContentColor = when {
+        isOnlineLan -> PokieEmerald
+        isBtReady -> androidx.compose.ui.graphics.Color(0xFF2979FF)
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val badgeIcon = when {
+        isOnlineLan -> Icons.Default.Wifi
+        isBtReady -> Icons.Default.Bluetooth
+        else -> Icons.Default.Sensors
+    }
+    val badgeText = when {
+        isOnlineLan -> "LAN Active"
+        isBtReady -> "Bluetooth Ready"
+        else -> "Bluetooth Proximity"
+    }
 
     Surface(
         modifier = modifier,
@@ -169,14 +190,14 @@ fun LanStatusBadge(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = if (isOnlineLan) Icons.Default.Wifi else Icons.Default.Sensors,
+                imageVector = badgeIcon,
                 contentDescription = null,
                 tint = badgeContentColor,
                 modifier = Modifier.size(13.dp)
             )
             Spacer(modifier = Modifier.width(4.dp))
             Text(
-                text = if (isOnlineLan) "LAN Active" else "Bluetooth Proximity",
+                text = badgeText,
                 color = badgeContentColor,
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.SemiBold

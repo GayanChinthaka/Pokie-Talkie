@@ -22,10 +22,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Wifi
+import com.pokerlanka.pokie_talkie.lan.ActiveTransportMode
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -98,24 +101,44 @@ fun HomeScreen(
                                 style = MaterialTheme.typography.titleLarge
                             )
                             Spacer(modifier = Modifier.width(8.dp))
+
+                            val transportText = when (state.activeTransport) {
+                                ActiveTransportMode.WIFI -> "Wi-Fi LAN"
+                                ActiveTransportMode.WIFI_DIRECT -> "Wi-Fi Direct"
+                                ActiveTransportMode.BLUETOOTH -> "Bluetooth"
+                                ActiveTransportMode.OFFLINE -> "Offline"
+                            }
+                            val transportColor = when (state.activeTransport) {
+                                ActiveTransportMode.WIFI -> PokieLanActiveBadge
+                                ActiveTransportMode.WIFI_DIRECT -> Color(0xFFAB47BC)
+                                ActiveTransportMode.BLUETOOTH -> Color(0xFF2979FF)
+                                ActiveTransportMode.OFFLINE -> MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                            val transportIcon = when (state.activeTransport) {
+                                ActiveTransportMode.WIFI -> Icons.Default.Wifi
+                                ActiveTransportMode.WIFI_DIRECT -> Icons.Default.Wifi
+                                ActiveTransportMode.BLUETOOTH -> Icons.Default.Bluetooth
+                                ActiveTransportMode.OFFLINE -> Icons.Default.Sensors
+                            }
+
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
-                                color = PokieLanActiveBadge.copy(alpha = 0.2f)
+                                color = transportColor.copy(alpha = 0.2f)
                             ) {
                                 Row(
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Wifi,
+                                        imageVector = transportIcon,
                                         contentDescription = null,
-                                        tint = PokieLanActiveBadge,
+                                        tint = transportColor,
                                         modifier = Modifier.size(12.dp)
                                     )
                                     Spacer(modifier = Modifier.width(3.dp))
                                     Text(
-                                        text = "LAN P2P",
-                                        color = PokieLanActiveBadge,
+                                        text = transportText,
+                                        color = transportColor,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -123,7 +146,7 @@ fun HomeScreen(
                             }
                         }
                         Text(
-                            text = "You: ${state.myDeviceName} (${state.myUserId})",
+                            text = "You: ${state.myDeviceName}",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelSmall
                         )
@@ -441,7 +464,10 @@ fun ContactItemCard(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    LanStatusBadge(isOnlineLan = contact.isOnlineLan)
+                    LanStatusBadge(
+                        isOnlineLan = contact.isOnlineLan,
+                        bluetoothAddress = contact.bluetoothAddress
+                    )
                     if (contact.isOnlineLan && contact.ipAddress.isNotBlank()) {
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(

@@ -54,6 +54,8 @@ class TelecomCallManager(
         PhoneAccountHandle(componentName, PHONE_ACCOUNT_ID)
     }
 
+    var onBluetoothCallInitiated: ((recipientId: String, recipientName: String, callId: String) -> Unit)? = null
+
     fun registerPhoneAccount() {
         try {
             val builder = PhoneAccount.builder(phoneAccountHandle, context.getString(R.string.phone_account_label))
@@ -76,9 +78,10 @@ class TelecomCallManager(
         callerId: String,
         callerName: String,
         callType: CallType,
-        callId: String
+        callId: String,
+        isBluetoothVoice: Boolean = false
     ) {
-        Log.i(tag, "Reporting incoming call from $callerName ($callerId) [Type: $callType, ID: $callId]")
+        Log.i(tag, "Reporting incoming call from $callerName ($callerId) [Type: $callType, ID: $callId, isBt: $isBluetoothVoice]")
 
         val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
@@ -113,7 +116,8 @@ class TelecomCallManager(
             peerName = callerName,
             callType = callType,
             isIncoming = true,
-            state = CallState.RINGING_INCOMING
+            state = CallState.RINGING_INCOMING,
+            isBluetoothVoice = isBluetoothVoice
         )
         callRepository.setCallSession(session)
 
@@ -169,9 +173,10 @@ class TelecomCallManager(
         recipientId: String,
         recipientName: String,
         callType: CallType,
-        callId: String
+        callId: String,
+        isBluetoothVoice: Boolean = false
     ) {
-        Log.i(tag, "Starting outgoing call to $recipientName ($recipientId)")
+        Log.i(tag, "Starting outgoing call to $recipientName ($recipientId), isBt: $isBluetoothVoice")
 
         val session = CallSession(
             callId = callId,
@@ -179,17 +184,24 @@ class TelecomCallManager(
             peerName = recipientName,
             callType = callType,
             isIncoming = false,
-            state = CallState.RINGING_OUTGOING
+            state = CallState.RINGING_OUTGOING,
+            isBluetoothVoice = isBluetoothVoice
         )
         PokieLocalService.notifyCallStarted(context)
         callRepository.setCallSession(session)
 
-        // Initialize WebRTC pipeline directly for immediate local media capture and Offer creation
-        try {
-            webRtcManager.startOutgoingCall(callType)
-            Log.i(tag, "Direct WebRTC outgoing media & offer pipeline initialized for $callType")
-        } catch (e: Exception) {
-            Log.e(tag, "Error starting outgoing WebRTC media pipeline: ${e.message}", e)
+        if (!isBluetoothVoice) {
+            // Initialize WebRTC pipeline directly for immediate local media capture and Offer creation
+            try {
+                webRtcManager.startOutgoingCall(callType)
+                Log.i(tag, "Direct WebRTC outgoing media & offer pipeline initialized for $callType")
+            } catch (e: Exception) {
+                Log.e(tag, "Error starting outgoing WebRTC media pipeline: ${e.message}", e)
+            }
+        } else {
+            // Bluetooth voice call: trigger direct Bluetooth call offer without WebRTC
+            Log.i(tag, "Triggering Bluetooth voice call offer to $recipientId")
+            onBluetoothCallInitiated?.invoke(recipientId, recipientName, callId)
         }
 
         val extras = Bundle().apply {

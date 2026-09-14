@@ -137,15 +137,58 @@ class BluetoothTransportManager(
                         contactRepository?.updateBluetoothAddress(payload.senderId, remoteDevice.address)
                     }
                     _incomingPayloads.emit(payload)
+
+                    // Send ACK back to sender to confirm reception before connection closes
+                    try {
+                        val writer = PrintWriter(OutputStreamWriter(socket.outputStream, Charsets.UTF_8), true)
+                        writer.println("ACK")
+                        writer.flush()
+                    } catch (e: Exception) {
+                        Log.w(tag, "Failed to send BT ACK to ${remoteDevice.address}: ${e.message}")
+                    }
                 }
             }
         } catch (e: Exception) {
             Log.w(tag, "Error handling Bluetooth client connection: ${e.message}")
         } finally {
             try {
+                // Grace delay so outgoing ACK packet is flushed through OS driver
+                kotlinx.coroutines.delay(100)
                 socket.close()
             } catch (ignored: Exception) {}
         }
+    }
+
+    /**
+     * Resolves a known or paired Bluetooth MAC address for a contact.
+     */
+    fun getKnownOrPairedAddress(contactId: String, contactName: String, storedAddress: String?): String? {
+        if (!storedAddress.isNullOrBlank()) return storedAddress
+        peerAddressMap[contactId]?.let { return it }
+
+        val paired = getPairedDevices()
+        val match = paired.find { device ->
+            val dName = try { device.name ?: "" } catch (e: Exception) { "" }
+            val dAddr = device.address ?: ""
+            dAddr.equals(contactId, ignoreCase = true) ||
+            dName.equals(contactName, ignoreCase = true) ||
+            (contactName.isNotBlank() && dName.contains(contactName, ignoreCase = true)) ||
+            (dName.isNotBlank() && contactName.contains(dName, ignoreCase = true))
+        }
+
+        if (match != null) {
+            val addr = match.address
+            peerAddressMap[contactId] = addr
+            return addr
+        }
+
+        if (paired.size == 1) {
+            val addr = paired.first().address
+            peerAddressMap[contactId] = addr
+            return addr
+        }
+
+        return null
     }
 
     /**
@@ -159,7 +202,6 @@ class BluetoothTransportManager(
             }
 
             var address = peerAddressMap[targetId]
-
             val contact = contactRepository?.getContact(targetId)
 
             // 1. Check stored bluetooth address in contact record
@@ -244,6 +286,25 @@ class BluetoothTransportManager(
                 val json = gson.toJson(payload)
                 writer.println(json)
                 writer.flush()
+
+                // Wait for receiver ACK or check inputStream before closing socket
+                try {
+                    val startTime = System.currentTimeMillis()
+                    while (System.currentTimeMillis() - startTime < 1200L) {
+                        if (socket.inputStream.available() > 0) {
+                            val reader = BufferedReader(InputStreamReader(socket.inputStream, Charsets.UTF_8))
+                            val ack = reader.readLine()
+                            Log.i(tag, "Bluetooth payload [${payload.type}] acknowledged by $address (ACK: $ack)")
+                            break
+                        }
+                        kotlinx.coroutines.delay(50)
+                    }
+                } catch (e: Exception) {
+                    Log.w(tag, "Exception waiting for Bluetooth ACK from $address: ${e.message}")
+                }
+
+                // Grace delay to ensure RFCOMM buffers are fully delivered over the air
+                kotlinx.coroutines.delay(150)
 
                 Log.i(tag, "Successfully dispatched Bluetooth payload [${payload.type}] to $address")
                 true

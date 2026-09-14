@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -45,6 +46,12 @@ class ChatViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val contact: StateFlow<Contact?> = contactRepository.getContactFlow(peerId)
+        .map { c ->
+            if (c != null && c.bluetoothAddress.isBlank()) {
+                val btAddr = fcmSignalingClient.bluetoothTransportManager.getKnownOrPairedAddress(c.id, c.name, c.bluetoothAddress)
+                if (!btAddr.isNullOrBlank()) c.copy(bluetoothAddress = btAddr) else c
+            } else c
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     init {
@@ -142,11 +149,13 @@ class ChatViewModel(
     fun initiateCall(callType: CallType) {
         val peer = contact.value ?: return
         val callId = UUID.randomUUID().toString()
+        val isBt = !peer.isOnlineLan
         telecomCallManager.startOutgoingCall(
             recipientId = peer.id,
             recipientName = peer.name,
-            callType = callType,
-            callId = callId
+            callType = if (isBt) CallType.VOICE else callType,
+            callId = callId,
+            isBluetoothVoice = isBt
         )
     }
 

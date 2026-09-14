@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
 
+import com.pokerlanka.pokie_talkie.lan.ActiveTransportMode
 import com.pokerlanka.pokie_talkie.data.local.UserPreferencesManager
 import com.pokerlanka.pokie_talkie.di.AppContainer
 
@@ -25,6 +26,7 @@ data class HomeUiState(
     val searchQuery: String = "",
     val myDeviceName: String = "",
     val myUserId: String = "",
+    val activeTransport: ActiveTransportMode = ActiveTransportMode.WIFI,
     val isScanningLan: Boolean = true,
     val showEditProfileDialog: Boolean = false,
     val showAddContactDialog: Boolean = false
@@ -48,24 +50,38 @@ class HomeViewModel(
     private val _showAddContactDialog = MutableStateFlow(false)
     val showAddContactDialog: StateFlow<Boolean> = _showAddContactDialog.asStateFlow()
 
+    private val dialogsFlow = combine(_showEditProfileDialog, _showAddContactDialog) { edit, add -> Pair(edit, add) }
+    private val userAndTransportFlow = combine(userPrefs.userNameFlow, appContainer.connectivityMonitor.activeTransport) { name, transport -> Pair(name, transport) }
+
     val uiState: StateFlow<HomeUiState> = combine(
         contactRepository.getContacts(),
         chatRepository.getUnreadCounts(userPrefs.userId),
         _searchQuery,
-        userPrefs.userNameFlow,
-        combine(_showEditProfileDialog, _showAddContactDialog) { edit, add -> Pair(edit, add) }
-    ) { contacts, unreadMap, query, userName, dialogs ->
+        userAndTransportFlow,
+        dialogsFlow
+    ) { contacts, unreadMap, query, userAndTransport, dialogs ->
+        val userName = userAndTransport.first
+        val transport = userAndTransport.second
         val filtered = if (query.isBlank()) {
             contacts
         } else {
             contacts.filter { it.name.contains(query, ignoreCase = true) || it.ipAddress.contains(query) }
         }
+        val enriched = filtered.map { contact ->
+            if (contact.bluetoothAddress.isBlank()) {
+                val resolvedBt = appContainer.bluetoothTransportManager.getKnownOrPairedAddress(contact.id, contact.name, contact.bluetoothAddress)
+                if (!resolvedBt.isNullOrBlank()) {
+                    contact.copy(bluetoothAddress = resolvedBt)
+                } else contact
+            } else contact
+        }
         HomeUiState(
-            contacts = filtered,
+            contacts = enriched,
             unreadCounts = unreadMap,
             searchQuery = query,
             myDeviceName = userName,
             myUserId = userPrefs.userId,
+            activeTransport = transport,
             isScanningLan = true,
             showEditProfileDialog = dialogs.first,
             showAddContactDialog = dialogs.second
@@ -73,7 +89,11 @@ class HomeViewModel(
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
-        initialValue = HomeUiState(myDeviceName = userPrefs.getUserName(), myUserId = userPrefs.userId)
+        initialValue = HomeUiState(
+            myDeviceName = userPrefs.getUserName(),
+            myUserId = userPrefs.userId,
+            activeTransport = appContainer.connectivityMonitor.activeTransport.value
+        )
     )
 
     fun onSearchQueryChanged(query: String) {
@@ -116,11 +136,13 @@ class HomeViewModel(
 
     fun initiateCall(contact: Contact, callType: CallType) {
         val callId = UUID.randomUUID().toString()
+        val isBt = !contact.isOnlineLan
         telecomCallManager.startOutgoingCall(
             recipientId = contact.id,
             recipientName = contact.name,
-            callType = callType,
-            callId = callId
+            callType = if (isBt) CallType.VOICE else callType,
+            callId = callId,
+            isBluetoothVoice = isBt
         )
     }
 

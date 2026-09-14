@@ -30,7 +30,8 @@ class IncomingCallActivity : ComponentActivity() {
                 callRepository = container.callRepository,
                 webRtcManager = container.webRtcManager,
                 fcmSignalingClient = container.fcmSignalingClient,
-                telecomCallManager = container.telecomCallManager
+                telecomCallManager = container.telecomCallManager,
+                bluetoothVoiceManager = container.bluetoothVoiceManager
             )
         )[CallViewModel::class.java]
 
@@ -59,12 +60,7 @@ class IncomingCallActivity : ComponentActivity() {
             WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
             WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
-            WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON or
-            WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+            WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON
         )
-        val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            keyguardManager?.requestDismissKeyguard(this, null)
-        }
     }
 }

@@ -27,6 +27,7 @@ import com.pokerlanka.pokie_talkie.data.repository.ContactRepository
 import com.pokerlanka.pokie_talkie.fcm.FcmSignalingClient
 import com.pokerlanka.pokie_talkie.lan.LanDiscoveryManager
 import com.pokerlanka.pokie_talkie.lan.LanSocketServer
+import com.pokerlanka.pokie_talkie.lan.ConnectivityMonitor
 import com.pokerlanka.pokie_talkie.telecom.PokieConnectionService
 import com.pokerlanka.pokie_talkie.telecom.TelecomCallManager
 import com.pokerlanka.pokie_talkie.webrtc.WebRtcManager
@@ -80,6 +81,10 @@ class AppContainer(val context: Context) {
         }
     }
 
+    val connectivityMonitor by lazy {
+        ConnectivityMonitor(context, applicationScope, wifiDirectManager, bluetoothTransportManager)
+    }
+
     val fcmSignalingClient by lazy {
         FcmSignalingClient(
             contactRepository = contactRepository,
@@ -100,12 +105,23 @@ class AppContainer(val context: Context) {
 
     fun onChatOpened(peerId: String) {
         activeChatPeerId = peerId
+        dismissChatMessageNotification(peerId)
         applicationScope.launch {
             val unreadIds = chatRepository.markIncomingAsRead(peerId, currentUserId)
             if (unreadIds.isNotEmpty()) {
                 Log.d(tag, "Marked ${unreadIds.size} messages as READ for peer $peerId, sending read receipt")
                 fcmSignalingClient.sendReadReceipt(peerId, unreadIds)
             }
+        }
+    }
+
+    fun dismissChatMessageNotification(senderId: String) {
+        try {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.cancel(senderId.hashCode())
+            Log.d(tag, "Dismissed chat message notification for peer: $senderId")
+        } catch (e: Exception) {
+            Log.w(tag, "Failed to dismiss notification: ${e.message}")
         }
     }
 
@@ -164,6 +180,14 @@ class AppContainer(val context: Context) {
             Log.w(tag, "Wi-Fi Direct init deferred: ${e.message}")
         }
 
+        // Start Connectivity Monitor
+        connectivityMonitor.start()
+
+        // Wire Bluetooth Call Outgoing Trigger
+        telecomCallManager.onBluetoothCallInitiated = { recipientId, recipientName, callId ->
+            fcmSignalingClient.sendBluetoothCallOffer(recipientId, recipientName, callId)
+        }
+
         // Listen for direct LAN & Bluetooth incoming payloads
         listenForLanPayloads()
         listenForBluetoothPayloads()
@@ -172,7 +196,7 @@ class AppContainer(val context: Context) {
     private fun setupWebRtcCallbacks() {
         webRtcManager.onLocalSdpCreated = { sdp ->
             val currentCall = callRepository.currentCall.value
-            if (currentCall != null) {
+            if (currentCall != null && !currentCall.isBluetoothVoice) {
                 if (sdp.type == SessionDescription.Type.OFFER) {
                     fcmSignalingClient.sendCallOffer(
                         targetId = currentCall.peerId,
@@ -192,7 +216,7 @@ class AppContainer(val context: Context) {
 
         webRtcManager.onLocalIceCandidate = { candidate ->
             val currentCall = callRepository.currentCall.value
-            if (currentCall != null) {
+            if (currentCall != null && !currentCall.isBluetoothVoice) {
                 fcmSignalingClient.sendIceCandidate(
                     targetId = currentCall.peerId,
                     callId = currentCall.callId,
@@ -230,24 +254,51 @@ class AppContainer(val context: Context) {
             SignalingType.OFFER -> {
                 val callType = payload.callType ?: CallType.VOICE
                 val callId = payload.callId ?: System.currentTimeMillis().toString()
+                val isBtCall = payload.isBluetoothVoice || payload.sdp.isNullOrBlank()
 
-                // Store pending remote SDP offer for when the user answers
-                webRtcManager.pendingRemoteOfferSdp = payload.sdp
+                if (!isBtCall) {
+                    // Store pending remote SDP offer for when the user answers
+                    webRtcManager.pendingRemoteOfferSdp = payload.sdp
+                } else {
+                    bluetoothVoiceManager.startVoiceServer()
+                }
 
                 telecomCallManager.handleIncomingCall(
                     callerId = payload.senderId,
                     callerName = payload.senderName,
                     callType = callType,
-                    callId = callId
+                    callId = callId,
+                    isBluetoothVoice = isBtCall
                 )
             }
 
             SignalingType.ANSWER -> {
-                payload.sdp?.let { sdpString ->
-                    webRtcManager.setRemoteDescription(sdpString, SessionDescription.Type.ANSWER)
+                val currentCall = callRepository.currentCall.value
+                val isBtCall = payload.isBluetoothVoice || currentCall?.isBluetoothVoice == true
+                if (isBtCall) {
+                    Log.i(tag, "Received Bluetooth call ANSWER from ${payload.senderName}")
+                    PokieConnectionService.activeConnection?.markConnected()
+                    callRepository.updateCallState(CallState.CONNECTED)
+                    val peerBtAddress = bluetoothTransportManager.getKnownOrPairedAddress(
+                        payload.senderId,
+                        payload.senderName,
+                        null
+                    )
+                    if (!peerBtAddress.isNullOrBlank()) {
+                        applicationScope.launch(Dispatchers.IO) {
+                            kotlinx.coroutines.delay(250)
+                            bluetoothVoiceManager.startOutgoingCall(peerBtAddress)
+                        }
+                    } else {
+                        Log.e(tag, "Cannot start Bluetooth voice: unknown MAC for ${payload.senderId}")
+                    }
+                } else {
+                    payload.sdp?.let { sdpString ->
+                        webRtcManager.setRemoteDescription(sdpString, SessionDescription.Type.ANSWER)
+                    }
+                    PokieConnectionService.activeConnection?.markConnected()
+                    callRepository.updateCallState(CallState.CONNECTED)
                 }
-                PokieConnectionService.activeConnection?.markConnected()
-                callRepository.updateCallState(CallState.CONNECTED)
             }
 
             SignalingType.ICE_CANDIDATE -> {
@@ -307,7 +358,7 @@ class AppContainer(val context: Context) {
 
                 // Only show system notification if user is NOT currently inside the chat screen with this contact
                 if (!isChatCurrentlyOpen) {
-                    showChatMessageNotification(payload.senderName, content)
+                    showChatMessageNotification(payload.senderId, payload.senderName, content)
                 }
             }
 
@@ -364,11 +415,12 @@ class AppContainer(val context: Context) {
         }
     }
 
-    fun showChatMessageNotification(senderName: String, messageText: String) {
+    fun showChatMessageNotification(senderId: String, senderName: String, messageText: String) {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("peerId", senderId)
         }
 
         val pendingIntent = PendingIntent.getActivity(
@@ -387,7 +439,7 @@ class AppContainer(val context: Context) {
             .setContentIntent(pendingIntent)
             .build()
 
-        notificationManager.notify(System.currentTimeMillis().toInt(), notification)
+        notificationManager.notify(senderId.hashCode(), notification)
     }
 
     private fun createNotificationChannels() {

@@ -123,7 +123,8 @@ fun PokieNavGraph(
                     callRepository = appContainer.callRepository,
                     webRtcManager = appContainer.webRtcManager,
                     fcmSignalingClient = appContainer.fcmSignalingClient,
-                    telecomCallManager = appContainer.telecomCallManager
+                    telecomCallManager = appContainer.telecomCallManager,
+                    bluetoothVoiceManager = appContainer.bluetoothVoiceManager
                 )
             )
 
