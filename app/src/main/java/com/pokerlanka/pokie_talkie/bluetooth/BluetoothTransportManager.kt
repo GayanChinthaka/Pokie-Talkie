@@ -12,7 +12,9 @@ import android.os.Build
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.google.gson.Gson
+import com.pokerlanka.pokie_talkie.data.model.Contact
 import com.pokerlanka.pokie_talkie.data.model.SignalingPayload
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -250,6 +252,7 @@ class BluetoothTransportManager(
                     }
                     Log.i(tag, "Matched target '$targetName' ($targetId) to paired Bluetooth device: ${match.name} ($matchedAddress)")
                 } else if (paired.isNotEmpty()) {
+                    // Aggressive fallback: find a phone-class device among paired
                     val phoneDevice = paired.find { device ->
                         try {
                             device.bluetoothClass?.majorDeviceClass == BluetoothClass.Device.Major.PHONE
@@ -260,10 +263,18 @@ class BluetoothTransportManager(
                     if (phoneDevice != null) {
                         address = phoneDevice.address
                         peerAddressMap[targetId] = address
+                        if (contact != null) {
+                            contactRepository?.updateBluetoothAddress(contact.id, address)
+                        }
                         Log.i(tag, "Selected paired phone device as Bluetooth fallback: ${phoneDevice.name} ($address)")
                     } else if (paired.size == 1) {
+                        // Only one paired device — use it as the only possible target
                         address = paired.first().address
                         peerAddressMap[targetId] = address
+                        if (contact != null) {
+                            contactRepository?.updateBluetoothAddress(contact.id, address)
+                        }
+                        Log.i(tag, "Single paired device fallback: ${paired.first().name} ($address)")
                     }
                 }
             }
@@ -356,6 +367,64 @@ class BluetoothTransportManager(
         } catch (e: SecurityException) {
             Log.w(tag, "SecurityException reading bonded devices: ${e.message}")
             emptyList()
+        }
+    }
+
+    /**
+     * Automatically registers paired Bluetooth devices as contacts in the local repository
+     * so they are immediately accessible for offline calling and messaging.
+     */
+    suspend fun syncPairedDevicesToContacts() {
+        if (!isBluetoothSupported || !hasPermission()) return
+        val paired = getPairedDevices()
+        if (paired.isEmpty()) return
+        val repo = contactRepository ?: return
+        val existingContacts = try { repo.getContacts().firstOrNull() ?: emptyList() } catch (e: Exception) { emptyList() }
+
+        paired.forEach { device ->
+            try {
+                val address = device.address ?: return@forEach
+                val name = try { device.name?.trim() } catch (e: Exception) { null }?.ifBlank { null } ?: "Bluetooth Device"
+
+                val isSupportedDevice = try {
+                    val major = device.bluetoothClass?.majorDeviceClass
+                    major == BluetoothClass.Device.Major.PHONE ||
+                    major == BluetoothClass.Device.Major.COMPUTER ||
+                    major == BluetoothClass.Device.Major.MISC ||
+                    major == BluetoothClass.Device.Major.UNCATEGORIZED ||
+                    major == null
+                } catch (e: Exception) { true }
+
+                if (isSupportedDevice) {
+                    peerAddressMap[address] = address
+                    if (name.isNotBlank()) peerAddressMap[name] = address
+
+                    val matched = existingContacts.find { 
+                        it.id == address || 
+                        it.bluetoothAddress.equals(address, ignoreCase = true) || 
+                        (it.name.isNotBlank() && it.name.equals(name, ignoreCase = true)) 
+                    }
+
+                    if (matched != null) {
+                        peerAddressMap[matched.id] = address
+                        if (matched.bluetoothAddress.isBlank()) {
+                            repo.updateBluetoothAddress(matched.id, address)
+                        }
+                    } else {
+                        repo.saveOrUpdateContact(
+                            Contact(
+                                id = address,
+                                name = name,
+                                bluetoothAddress = address,
+                                isOnlineLan = false,
+                                lastSeenTimestamp = System.currentTimeMillis()
+                            )
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(tag, "Error syncing paired device ${device.address}: ${e.message}")
+            }
         }
     }
 

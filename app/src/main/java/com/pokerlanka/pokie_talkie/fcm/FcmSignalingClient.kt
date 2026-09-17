@@ -29,6 +29,7 @@ class FcmSignalingClient(
 ) {
     private val tag = "FcmSignalingClient"
     private val gson = Gson()
+    var onCallFallbackToBluetooth: ((callId: String) -> Unit)? = null
 
     fun sendCallOffer(targetId: String, callId: String, callType: CallType, sdp: SessionDescription) {
         val payload = SignalingPayload(
@@ -250,14 +251,20 @@ class FcmSignalingClient(
             }
 
             // Priority 2: Bluetooth RFCOMM Direct Proximity (Zero WiFi router needed)
-            var btSuccess = false
+            // Always try BT if LAN didn't succeed — works even if contact is null (paired device fallback)
             if (!lanSuccess) {
                 Log.d(tag, "LAN delivery unavailable or offline. Attempting Priority 2 Bluetooth RFCOMM to $targetId (${contact?.name})")
-                btSuccess = bluetoothTransportManager.sendPayload(targetId, payload)
-            }
-
-            if (!lanSuccess && !btSuccess) {
-                Log.w(tag, "Dispatch failed: Peer $targetId unreachable on LAN Wi-Fi and Bluetooth")
+                val outboundPayload = if (payload.type == SignalingType.OFFER && !payload.isBluetoothVoice) {
+                    Log.i(tag, "LAN socket failed for WebRTC offer. Falling back to Bluetooth Voice call offer for $targetId")
+                    onCallFallbackToBluetooth?.invoke(payload.callId ?: "")
+                    payload.copy(isBluetoothVoice = true, sdp = null, callType = CallType.VOICE)
+                } else {
+                    payload
+                }
+                val btSuccess = bluetoothTransportManager.sendPayload(targetId, outboundPayload)
+                if (!btSuccess) {
+                    Log.w(tag, "Dispatch failed: Peer $targetId unreachable on LAN Wi-Fi and Bluetooth")
+                }
             }
         }
     }

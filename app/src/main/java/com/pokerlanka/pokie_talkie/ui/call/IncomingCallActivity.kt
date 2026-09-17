@@ -31,7 +31,8 @@ class IncomingCallActivity : ComponentActivity() {
                 webRtcManager = container.webRtcManager,
                 fcmSignalingClient = container.fcmSignalingClient,
                 telecomCallManager = container.telecomCallManager,
-                bluetoothVoiceManager = container.bluetoothVoiceManager
+                bluetoothVoiceManager = container.bluetoothVoiceManager,
+                ringtoneVibrationManager = container.ringtoneVibrationManager
             )
         )[CallViewModel::class.java]
 

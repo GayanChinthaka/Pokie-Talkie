@@ -28,6 +28,7 @@ import com.pokerlanka.pokie_talkie.fcm.FcmSignalingClient
 import com.pokerlanka.pokie_talkie.lan.LanDiscoveryManager
 import com.pokerlanka.pokie_talkie.lan.LanSocketServer
 import com.pokerlanka.pokie_talkie.lan.ConnectivityMonitor
+import com.pokerlanka.pokie_talkie.lan.ActiveTransportMode
 import com.pokerlanka.pokie_talkie.telecom.PokieConnectionService
 import com.pokerlanka.pokie_talkie.telecom.TelecomCallManager
 import com.pokerlanka.pokie_talkie.webrtc.WebRtcManager
@@ -38,6 +39,7 @@ import kotlinx.coroutines.launch
 import com.pokerlanka.pokie_talkie.bluetooth.BluetoothTransportManager
 import com.pokerlanka.pokie_talkie.bluetooth.BluetoothVoiceManager
 import com.pokerlanka.pokie_talkie.wifip2p.WifiDirectManager
+import com.pokerlanka.pokie_talkie.telecom.RingtoneVibrationManager
 import org.webrtc.SessionDescription
 
 import com.pokerlanka.pokie_talkie.data.local.UserPreferencesManager
@@ -98,7 +100,8 @@ class AppContainer(val context: Context) {
     }
 
     val webRtcManager by lazy { WebRtcManager(context, applicationScope) }
-    val telecomCallManager by lazy { TelecomCallManager(context, callRepository, webRtcManager) }
+    val ringtoneVibrationManager by lazy { RingtoneVibrationManager(context) }
+    val telecomCallManager by lazy { TelecomCallManager(context, callRepository, webRtcManager, ringtoneVibrationManager) }
 
     @Volatile
     var activeChatPeerId: String? = null
@@ -188,6 +191,15 @@ class AppContainer(val context: Context) {
             fcmSignalingClient.sendBluetoothCallOffer(recipientId, recipientName, callId)
         }
 
+        fcmSignalingClient.onCallFallbackToBluetooth = { _ ->
+            webRtcManager.endCall()
+            callRepository.updateBluetoothVoice(true)
+        }
+
+        applicationScope.launch(Dispatchers.IO) {
+            bluetoothTransportManager.syncPairedDevicesToContacts()
+        }
+
         // Listen for direct LAN & Bluetooth incoming payloads
         listenForLanPayloads()
         listenForBluetoothPayloads()
@@ -254,7 +266,10 @@ class AppContainer(val context: Context) {
             SignalingType.OFFER -> {
                 val callType = payload.callType ?: CallType.VOICE
                 val callId = payload.callId ?: System.currentTimeMillis().toString()
-                val isBtCall = payload.isBluetoothVoice || payload.sdp.isNullOrBlank()
+                val isBtCall = payload.isBluetoothVoice || 
+                    payload.sdp.isNullOrBlank() || 
+                    source == "Bluetooth" || 
+                    connectivityMonitor.activeTransport.value == ActiveTransportMode.BLUETOOTH
 
                 if (!isBtCall) {
                     // Store pending remote SDP offer for when the user answers
@@ -275,6 +290,8 @@ class AppContainer(val context: Context) {
             SignalingType.ANSWER -> {
                 val currentCall = callRepository.currentCall.value
                 val isBtCall = payload.isBluetoothVoice || currentCall?.isBluetoothVoice == true
+                // Stop ringback tone on the sender side when remote answers
+                ringtoneVibrationManager.stopAll()
                 if (isBtCall) {
                     Log.i(tag, "Received Bluetooth call ANSWER from ${payload.senderName}")
                     PokieConnectionService.activeConnection?.markConnected()
@@ -326,15 +343,38 @@ class AppContainer(val context: Context) {
 
                 applicationScope.launch {
                     val existingContact = contactRepository.getContact(payload.senderId)
+                    val remoteBtAddress = bluetoothTransportManager.getPeerAddress(payload.senderId) ?: ""
+                    val isLan = (source == "LAN")
+
                     if (existingContact == null) {
-                        contactRepository.saveOrUpdateContact(
-                            Contact(
-                                id = payload.senderId,
-                                name = payload.senderName.ifBlank { "Family Member" },
-                                isOnlineLan = true,
-                                lastSeenTimestamp = System.currentTimeMillis()
+                        val byBt = if (remoteBtAddress.isNotBlank()) contactRepository.getContact(remoteBtAddress) else null
+                        if (byBt != null) {
+                            contactRepository.deleteContact(byBt.id)
+                            contactRepository.saveOrUpdateContact(
+                                byBt.copy(
+                                    id = payload.senderId,
+                                    name = payload.senderName.ifBlank { byBt.name },
+                                    bluetoothAddress = remoteBtAddress,
+                                    isOnlineLan = isLan,
+                                    lastSeenTimestamp = System.currentTimeMillis()
+                                )
                             )
-                        )
+                        } else {
+                            contactRepository.saveOrUpdateContact(
+                                Contact(
+                                    id = payload.senderId,
+                                    name = payload.senderName.ifBlank { "Family Member" },
+                                    bluetoothAddress = remoteBtAddress,
+                                    isOnlineLan = isLan,
+                                    lastSeenTimestamp = System.currentTimeMillis()
+                                )
+                            )
+                        }
+                    } else {
+                        contactRepository.updateLanStatus(payload.senderId, isLan)
+                        if (remoteBtAddress.isNotBlank() && existingContact.bluetoothAddress.isBlank()) {
+                            contactRepository.updateBluetoothAddress(payload.senderId, remoteBtAddress)
+                        }
                     }
 
                     chatRepository.saveMessage(
@@ -361,6 +401,7 @@ class AppContainer(val context: Context) {
                 // Only show system notification if user is NOT currently inside the chat screen with this contact
                 if (!isChatCurrentlyOpen) {
                     showChatMessageNotification(payload.senderId, payload.senderName, content)
+                    ringtoneVibrationManager.playMessageNotification()
                 }
             }
 
@@ -483,12 +524,16 @@ class AppContainer(val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val defaultNotifSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+
         val notification = NotificationCompat.Builder(context, CHANNEL_MESSAGES_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(senderName)
             .setContentText(messageText)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
+            .setSound(defaultNotifSound)
+            .setVibrate(longArrayOf(0, 200))
             .setContentIntent(pendingIntent)
             .build()
 
@@ -519,13 +564,21 @@ class AppContainer(val context: Context) {
             }
 
             // Chat Messages Channel
+            val defaultNotifSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val notifAudioAttributes = AudioAttributes.Builder()
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .build()
+
             val messagesChannel = NotificationChannel(
                 CHANNEL_MESSAGES_ID,
                 context.getString(R.string.channel_messages_name),
-                NotificationManager.IMPORTANCE_DEFAULT
+                NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = context.getString(R.string.channel_messages_desc)
+                setSound(defaultNotifSound, notifAudioAttributes)
                 enableVibration(true)
+                vibrationPattern = longArrayOf(0, 200)
             }
 
             notificationManager.createNotificationChannels(listOf(callsChannel, messagesChannel))

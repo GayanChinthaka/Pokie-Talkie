@@ -32,7 +32,8 @@ import com.pokerlanka.pokie_talkie.webrtc.WebRtcManager
 class TelecomCallManager(
     private val context: Context,
     private val callRepository: CallRepository,
-    private val webRtcManager: WebRtcManager
+    private val webRtcManager: WebRtcManager,
+    val ringtoneVibrationManager: RingtoneVibrationManager
 ) {
     private val tag = "TelecomCallManager"
     private val telecomManager = context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
@@ -89,6 +90,7 @@ class TelecomCallManager(
         val isForeground = com.pokerlanka.pokie_talkie.PokieApp.isAppInForeground
 
         PokieLocalService.notifyCallStarted(context)
+        ringtoneVibrationManager.startIncomingRing()
 
         if (isScreenOffOrLocked) {
             // Wake screen & CPU so lockscreen full-screen activity can be displayed immediately
@@ -189,6 +191,7 @@ class TelecomCallManager(
         )
         PokieLocalService.notifyCallStarted(context)
         callRepository.setCallSession(session)
+        ringtoneVibrationManager.startRingbackTone()
 
         if (!isBluetoothVoice) {
             // Initialize WebRTC pipeline directly for immediate local media capture and Offer creation
@@ -304,6 +307,7 @@ class TelecomCallManager(
 
     fun dismissCallNotification() {
         notificationManager.cancel(NOTIFICATION_CALL_ID)
+        ringtoneVibrationManager.stopAll()
         PokieLocalService.notifyCallEnded(context)
     }
 }

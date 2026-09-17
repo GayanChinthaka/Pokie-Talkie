@@ -10,6 +10,7 @@ import com.pokerlanka.pokie_talkie.data.repository.CallRepository
 import com.pokerlanka.pokie_talkie.fcm.FcmSignalingClient
 import com.pokerlanka.pokie_talkie.telecom.PokieConnectionService
 import com.pokerlanka.pokie_talkie.telecom.TelecomCallManager
+import com.pokerlanka.pokie_talkie.telecom.RingtoneVibrationManager
 import com.pokerlanka.pokie_talkie.webrtc.WebRtcManager
 import com.pokerlanka.pokie_talkie.bluetooth.BluetoothVoiceManager
 import kotlinx.coroutines.Job
@@ -30,7 +31,8 @@ class CallViewModel(
     val webRtcManager: WebRtcManager,
     private val fcmSignalingClient: FcmSignalingClient,
     private val telecomCallManager: TelecomCallManager,
-    val bluetoothVoiceManager: BluetoothVoiceManager
+    val bluetoothVoiceManager: BluetoothVoiceManager,
+    private val ringtoneVibrationManager: RingtoneVibrationManager
 ) : ViewModel() {
 
     val currentCall: StateFlow<CallSession?> = callRepository.currentCall
@@ -73,8 +75,10 @@ class CallViewModel(
         viewModelScope.launch {
             callRepository.currentCall.collect { session ->
                 if (session?.state == CallState.CONNECTED) {
+                    ringtoneVibrationManager.stopAll()
                     startTimer()
                 } else if (session?.state == CallState.DISCONNECTED || session?.state == CallState.REJECTED) {
+                    ringtoneVibrationManager.stopAll()
                     stopTimer()
                 }
             }
@@ -83,6 +87,7 @@ class CallViewModel(
         viewModelScope.launch {
             webRtcManager.isCallConnected.collect { connected ->
                 if (connected) {
+                    ringtoneVibrationManager.stopAll()
                     callRepository.updateCallState(CallState.CONNECTED)
                 }
             }
@@ -107,6 +112,7 @@ class CallViewModel(
     }
 
     fun answerCall() {
+        ringtoneVibrationManager.stopAll()
         val session = currentCall.value
         val isBt = session?.isBluetoothVoice == true
         if (isBt) {
@@ -203,11 +209,13 @@ class CallViewModel(
         viewModelScope.launch {
             callRepository.endCallAndLog()
         }
+        ringtoneVibrationManager.stopAll()
     }
 
     override fun onCleared() {
         super.onCleared()
         stopTimer()
+        ringtoneVibrationManager.stopAll()
     }
 
     companion object {
@@ -216,11 +224,12 @@ class CallViewModel(
             webRtcManager: WebRtcManager,
             fcmSignalingClient: FcmSignalingClient,
             telecomCallManager: TelecomCallManager,
-            bluetoothVoiceManager: BluetoothVoiceManager
+            bluetoothVoiceManager: BluetoothVoiceManager,
+            ringtoneVibrationManager: RingtoneVibrationManager
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return CallViewModel(callRepository, webRtcManager, fcmSignalingClient, telecomCallManager, bluetoothVoiceManager) as T
+                return CallViewModel(callRepository, webRtcManager, fcmSignalingClient, telecomCallManager, bluetoothVoiceManager, ringtoneVibrationManager) as T
             }
         }
     }

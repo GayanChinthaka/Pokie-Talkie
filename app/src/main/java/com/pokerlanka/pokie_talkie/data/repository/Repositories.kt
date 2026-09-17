@@ -221,6 +221,10 @@ class CallRepository(
         _currentCall.value = _currentCall.value?.copy(callType = callType)
     }
 
+    fun updateBluetoothVoice(isBluetoothVoice: Boolean) {
+        _currentCall.value = _currentCall.value?.copy(isBluetoothVoice = isBluetoothVoice)
+    }
+
     fun updateDuration(duration: Long) {
         _currentCall.value = _currentCall.value?.copy(durationSeconds = duration)
     }

@@ -12,6 +12,8 @@ import com.pokerlanka.pokie_talkie.data.model.Sticker
 import com.pokerlanka.pokie_talkie.data.repository.ChatRepository
 import com.pokerlanka.pokie_talkie.data.repository.ContactRepository
 import com.pokerlanka.pokie_talkie.fcm.FcmSignalingClient
+import com.pokerlanka.pokie_talkie.lan.ConnectivityMonitor
+import com.pokerlanka.pokie_talkie.lan.ActiveTransportMode
 import com.pokerlanka.pokie_talkie.telecom.TelecomCallManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -35,7 +37,8 @@ class ChatViewModel(
     private val chatRepository: ChatRepository,
     private val contactRepository: ContactRepository,
     private val fcmSignalingClient: FcmSignalingClient,
-    private val telecomCallManager: TelecomCallManager
+    private val telecomCallManager: TelecomCallManager,
+    private val connectivityMonitor: ConnectivityMonitor
 ) : ViewModel() {
 
     private val _inputText = MutableStateFlow("")
@@ -149,7 +152,7 @@ class ChatViewModel(
     fun initiateCall(callType: CallType) {
         val peer = contact.value ?: return
         val callId = UUID.randomUUID().toString()
-        val isBt = !peer.isOnlineLan
+        val isBt = !peer.isOnlineLan || connectivityMonitor.activeTransport.value == ActiveTransportMode.BLUETOOTH
         telecomCallManager.startOutgoingCall(
             recipientId = peer.id,
             recipientName = peer.name,
@@ -166,11 +169,12 @@ class ChatViewModel(
             chatRepository: ChatRepository,
             contactRepository: ContactRepository,
             fcmSignalingClient: FcmSignalingClient,
-            telecomCallManager: TelecomCallManager
+            telecomCallManager: TelecomCallManager,
+            connectivityMonitor: ConnectivityMonitor
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return ChatViewModel(peerId, myUserId, chatRepository, contactRepository, fcmSignalingClient, telecomCallManager) as T
+                return ChatViewModel(peerId, myUserId, chatRepository, contactRepository, fcmSignalingClient, telecomCallManager, connectivityMonitor) as T
             }
         }
     }
