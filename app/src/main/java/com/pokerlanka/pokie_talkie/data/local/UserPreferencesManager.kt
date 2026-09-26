@@ -25,7 +25,16 @@ class UserPreferencesManager(context: Context) {
         private const val KEY_AVATAR_COLOR = "key_avatar_color"
         private const val KEY_PROFILE_IMAGE_PATH = "key_profile_image_path"
         private const val KEY_FCM_SERVER_KEY = "key_fcm_server_key"
+        private const val KEY_CALL_RINGTONE_ENABLED = "key_call_ringtone_enabled"
+        private const val KEY_CALL_VIBRATION_ENABLED = "key_call_vibration_enabled"
+        private const val KEY_RINGBACK_TONE_ENABLED = "key_ringback_tone_enabled"
+        private const val KEY_MESSAGE_SOUND_ENABLED = "key_message_sound_enabled"
+        private const val KEY_MESSAGE_VIBRATION_ENABLED = "key_message_vibration_enabled"
+        private const val KEY_AUTO_CHECK_UPDATES = "key_auto_check_updates"
+        private const val KEY_LAST_UPDATE_CHECK_TIME = "key_last_update_check_time"
+        private const val KEY_THEME_ACCENT_COLOR = "key_theme_accent_color"
         const val DEFAULT_AVATAR_COLOR = 0xFF00A884
+        const val DEFAULT_ACCENT_COLOR = 0xFF00A884
     }
 
     val userId: String
@@ -53,8 +62,34 @@ class UserPreferencesManager(context: Context) {
     private val _avatarColorFlow = MutableStateFlow(prefs.getLong(KEY_AVATAR_COLOR, DEFAULT_AVATAR_COLOR))
     val avatarColorFlow: StateFlow<Long> = _avatarColorFlow.asStateFlow()
 
+    private val _themeAccentColorFlow = MutableStateFlow(prefs.getLong(KEY_THEME_ACCENT_COLOR, DEFAULT_ACCENT_COLOR))
+    val themeAccentColorFlow: StateFlow<Long> = _themeAccentColorFlow.asStateFlow()
+
     private val _profileImagePathFlow = MutableStateFlow(prefs.getString(KEY_PROFILE_IMAGE_PATH, null))
     val profileImagePathFlow: StateFlow<String?> = _profileImagePathFlow.asStateFlow()
+
+    // Ringing & Sounds
+    private val _callRingtoneEnabledFlow = MutableStateFlow(prefs.getBoolean(KEY_CALL_RINGTONE_ENABLED, true))
+    val callRingtoneEnabledFlow: StateFlow<Boolean> = _callRingtoneEnabledFlow.asStateFlow()
+
+    private val _callVibrationEnabledFlow = MutableStateFlow(prefs.getBoolean(KEY_CALL_VIBRATION_ENABLED, true))
+    val callVibrationEnabledFlow: StateFlow<Boolean> = _callVibrationEnabledFlow.asStateFlow()
+
+    private val _ringbackToneEnabledFlow = MutableStateFlow(prefs.getBoolean(KEY_RINGBACK_TONE_ENABLED, true))
+    val ringbackToneEnabledFlow: StateFlow<Boolean> = _ringbackToneEnabledFlow.asStateFlow()
+
+    private val _messageSoundEnabledFlow = MutableStateFlow(prefs.getBoolean(KEY_MESSAGE_SOUND_ENABLED, true))
+    val messageSoundEnabledFlow: StateFlow<Boolean> = _messageSoundEnabledFlow.asStateFlow()
+
+    private val _messageVibrationEnabledFlow = MutableStateFlow(prefs.getBoolean(KEY_MESSAGE_VIBRATION_ENABLED, true))
+    val messageVibrationEnabledFlow: StateFlow<Boolean> = _messageVibrationEnabledFlow.asStateFlow()
+
+    // Updater
+    private val _autoCheckUpdatesFlow = MutableStateFlow(prefs.getBoolean(KEY_AUTO_CHECK_UPDATES, true))
+    val autoCheckUpdatesFlow: StateFlow<Boolean> = _autoCheckUpdatesFlow.asStateFlow()
+
+    private val _lastUpdateCheckTimeFlow = MutableStateFlow(prefs.getLong(KEY_LAST_UPDATE_CHECK_TIME, 0L))
+    val lastUpdateCheckTimeFlow: StateFlow<Long> = _lastUpdateCheckTimeFlow.asStateFlow()
 
     private fun getUserNameInternal(): String {
         val saved = prefs.getString(KEY_USER_NAME, null)
@@ -119,11 +154,58 @@ class UserPreferencesManager(context: Context) {
         }
     }
 
+    fun setThemeAccentColor(colorHex: Long) {
+        prefs.edit().putLong(KEY_THEME_ACCENT_COLOR, colorHex).apply()
+        _themeAccentColorFlow.value = colorHex
+    }
+
+    fun setCallRingtoneEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_CALL_RINGTONE_ENABLED, enabled).apply()
+        _callRingtoneEnabledFlow.value = enabled
+    }
+
+    fun setCallVibrationEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_CALL_VIBRATION_ENABLED, enabled).apply()
+        _callVibrationEnabledFlow.value = enabled
+    }
+
+    fun setRingbackToneEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_RINGBACK_TONE_ENABLED, enabled).apply()
+        _ringbackToneEnabledFlow.value = enabled
+    }
+
+    fun setMessageSoundEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_MESSAGE_SOUND_ENABLED, enabled).apply()
+        _messageSoundEnabledFlow.value = enabled
+    }
+
+    fun setMessageVibrationEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_MESSAGE_VIBRATION_ENABLED, enabled).apply()
+        _messageVibrationEnabledFlow.value = enabled
+    }
+
+    fun setAutoCheckUpdates(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AUTO_CHECK_UPDATES, enabled).apply()
+        _autoCheckUpdatesFlow.value = enabled
+    }
+
+    fun setLastUpdateCheckTime(timestamp: Long) {
+        prefs.edit().putLong(KEY_LAST_UPDATE_CHECK_TIME, timestamp).apply()
+        _lastUpdateCheckTimeFlow.value = timestamp
+    }
+
     fun getUserName(): String = _userNameFlow.value
     fun getFcmToken(): String = _fcmTokenFlow.value
     fun getFcmServerKey(): String? = _fcmServerKeyFlow.value
     fun getThemeMode(): AppThemeMode = _themeModeFlow.value
     fun getAvatarColor(): Long = _avatarColorFlow.value
+    fun getThemeAccentColor(): Long = _themeAccentColorFlow.value
     fun getProfileImagePath(): String? = _profileImagePathFlow.value
+    fun isCallRingtoneEnabled(): Boolean = _callRingtoneEnabledFlow.value
+    fun isCallVibrationEnabled(): Boolean = _callVibrationEnabledFlow.value
+    fun isRingbackToneEnabled(): Boolean = _ringbackToneEnabledFlow.value
+    fun isMessageSoundEnabled(): Boolean = _messageSoundEnabledFlow.value
+    fun isMessageVibrationEnabled(): Boolean = _messageVibrationEnabledFlow.value
+    fun isAutoCheckUpdates(): Boolean = _autoCheckUpdatesFlow.value
 }
 

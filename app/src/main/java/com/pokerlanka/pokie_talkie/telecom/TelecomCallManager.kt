@@ -308,6 +308,10 @@ class TelecomCallManager(
     fun dismissCallNotification() {
         notificationManager.cancel(NOTIFICATION_CALL_ID)
         ringtoneVibrationManager.stopAll()
+        webRtcManager.audioDeviceManager.resetToNormal()
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+        audioManager?.mode = android.media.AudioManager.MODE_NORMAL
+        audioManager?.isSpeakerphoneOn = false
         PokieLocalService.notifyCallEnded(context)
     }
 }

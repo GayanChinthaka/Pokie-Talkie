@@ -131,4 +131,13 @@ class MainActivity : ComponentActivity() {
             (application as? PokieApp)?.appContainer?.ensureListenersActive()
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        val app = application as? PokieApp
+        val currentCall = app?.appContainer?.callRepository?.currentCall?.value
+        if (currentCall == null || (currentCall.state != CallState.CONNECTED && currentCall.state != CallState.RINGING_INCOMING && currentCall.state != CallState.RINGING_OUTGOING)) {
+            app?.appContainer?.resetAudioModeToNormal()
+        }
+    }
 }

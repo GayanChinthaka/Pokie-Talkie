@@ -134,27 +134,16 @@ class PokieLocalService : Service() {
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                var serviceType = 0
                 val hasBtConnect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
                 } else {
                     true
                 }
-                val hasRecordAudio = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
-                if (hasBtConnect) {
-                    serviceType = serviceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
-                }
-
-                if (inCall) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        serviceType = serviceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
-                        if (hasRecordAudio) {
-                            serviceType = serviceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-                        }
-                    } else {
-                        serviceType = serviceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
-                    }
+                val serviceType = if (hasBtConnect) {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+                } else {
+                    0
                 }
 
                 if (serviceType != 0) {

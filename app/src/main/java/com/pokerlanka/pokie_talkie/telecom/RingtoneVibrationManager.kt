@@ -13,6 +13,8 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
 
+import com.pokerlanka.pokie_talkie.data.local.UserPreferencesManager
+
 /**
  * Centralised manager for call ringtone, vibration, outgoing ringback tone,
  * and message notification sound / vibration.
@@ -20,7 +22,10 @@ import android.util.Log
  * All methods are idempotent — calling start twice is safe; calling stop when
  * nothing is playing is also safe.
  */
-class RingtoneVibrationManager(private val context: Context) {
+class RingtoneVibrationManager(
+    private val context: Context,
+    private val userPreferencesManager: UserPreferencesManager? = null
+) {
 
     private val tag = "RingtoneVibration"
 
@@ -56,22 +61,23 @@ class RingtoneVibrationManager(private val context: Context) {
 
     /**
      * Start playing the device's default ringtone and vibration pattern
-     * for an incoming call.  Works regardless of foreground/background state.
+     * for an incoming call. Respects user preferences and device ringer mode.
      */
     fun startIncomingRing() {
         if (isRinging) return
         isRinging = true
 
-        // Respect the ringer mode — only ring when RINGER_MODE_NORMAL
         val ringerMode = audioManager.ringerMode
+        val allowVibrate = userPreferencesManager?.isCallVibrationEnabled() ?: true
+        val allowRingtone = userPreferencesManager?.isCallRingtoneEnabled() ?: true
 
         // Start vibration in NORMAL and VIBRATE modes
-        if (ringerMode != AudioManager.RINGER_MODE_SILENT) {
+        if (allowVibrate && ringerMode != AudioManager.RINGER_MODE_SILENT) {
             startCallVibration()
         }
 
         // Play audible ringtone only in NORMAL mode
-        if (ringerMode == AudioManager.RINGER_MODE_NORMAL) {
+        if (allowRingtone && ringerMode == AudioManager.RINGER_MODE_NORMAL) {
             try {
                 val ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
                 ringtone = RingtoneManager.getRingtone(context, ringtoneUri)?.apply {
@@ -113,10 +119,13 @@ class RingtoneVibrationManager(private val context: Context) {
 
     /**
      * Play an audible ringback tone to the caller while the remote phone is
-     * ringing.  Uses a standard telephony SUP_RINGTONE.
+     * ringing. Uses a standard telephony SUP_RINGTONE.
      */
     fun startRingbackTone() {
         if (isRingbackPlaying) return
+        val allowRingback = userPreferencesManager?.isRingbackToneEnabled() ?: true
+        if (!allowRingback) return
+
         isRingbackPlaying = true
 
         try {
@@ -132,9 +141,7 @@ class RingtoneVibrationManager(private val context: Context) {
      * Stop the outgoing-call ringback tone.
      */
     fun stopRingbackTone() {
-        if (!isRingbackPlaying) return
         isRingbackPlaying = false
-
         try {
             toneGenerator?.stopTone()
             toneGenerator?.release()
@@ -149,13 +156,15 @@ class RingtoneVibrationManager(private val context: Context) {
 
     /**
      * Play a short notification sound and a brief vibration for an incoming
-     * chat message.  Respects the ringer/notification volume.
+     * chat message. Respects user preferences and device ringer mode.
      */
     fun playMessageNotification() {
         val ringerMode = audioManager.ringerMode
+        val allowVibrate = userPreferencesManager?.isMessageVibrationEnabled() ?: true
+        val allowSound = userPreferencesManager?.isMessageSoundEnabled() ?: true
 
         // Short vibration in NORMAL and VIBRATE modes
-        if (ringerMode != AudioManager.RINGER_MODE_SILENT) {
+        if (allowVibrate && ringerMode != AudioManager.RINGER_MODE_SILENT) {
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     vibrator.vibrate(
@@ -171,7 +180,7 @@ class RingtoneVibrationManager(private val context: Context) {
         }
 
         // Play notification sound only in NORMAL mode
-        if (ringerMode == AudioManager.RINGER_MODE_NORMAL) {
+        if (allowSound && ringerMode == AudioManager.RINGER_MODE_NORMAL) {
             try {
                 val notifUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
                 messagePlayer?.release()
@@ -206,6 +215,12 @@ class RingtoneVibrationManager(private val context: Context) {
     fun stopAll() {
         stopIncomingRing()
         stopRingbackTone()
+        stopVibration()
+        try {
+            messagePlayer?.stop()
+            messagePlayer?.release()
+        } catch (ignored: Exception) {}
+        messagePlayer = null
     }
 
     // ===========================================

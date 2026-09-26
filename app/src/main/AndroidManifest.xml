@@ -109,7 +109,7 @@
         <service
             android:name=".service.PokieLocalService"
             android:exported="false"
-            android:foregroundServiceType="connectedDevice|phoneCall|microphone" />
+            android:foregroundServiceType="connectedDevice" />
 
         <!-- Call Action Receiver for Notification Answer/Decline buttons -->
         <receiver

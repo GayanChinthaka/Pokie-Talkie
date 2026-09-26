@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.RingtoneManager
 import android.os.Build
 import android.util.Log
@@ -100,7 +101,7 @@ class AppContainer(val context: Context) {
     }
 
     val webRtcManager by lazy { WebRtcManager(context, applicationScope) }
-    val ringtoneVibrationManager by lazy { RingtoneVibrationManager(context) }
+    val ringtoneVibrationManager by lazy { RingtoneVibrationManager(context, userPreferencesManager) }
     val telecomCallManager by lazy { TelecomCallManager(context, callRepository, webRtcManager, ringtoneVibrationManager) }
 
     @Volatile
@@ -156,6 +157,7 @@ class AppContainer(val context: Context) {
 
     fun initialize() {
         createNotificationChannels()
+        resetAudioModeToNormal()
         telecomCallManager.registerPhoneAccount()
 
         // Start LAN Socket Server on Port 52220
@@ -506,6 +508,19 @@ class AppContainer(val context: Context) {
             bluetoothVoiceManager.startVoiceServer()
         } catch (e: Exception) {
             Log.w(tag, "Bluetooth voice server start error: ${e.message}")
+        }
+    }
+
+    fun resetAudioModeToNormal() {
+        try {
+            ringtoneVibrationManager.stopAll()
+            webRtcManager.audioDeviceManager.resetToNormal()
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            audioManager?.mode = AudioManager.MODE_NORMAL
+            audioManager?.isSpeakerphoneOn = false
+            Log.d(tag, "App audio mode reset to MODE_NORMAL")
+        } catch (e: Exception) {
+            Log.w(tag, "Failed to reset audio mode: ${e.message}")
         }
     }
 

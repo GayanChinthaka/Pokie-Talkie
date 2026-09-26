@@ -10,18 +10,12 @@ import android.util.Log
 class WebRtcAudioDeviceManager(private val context: Context) {
     private val tag = "WebRtcAudioDeviceManager"
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    private var savedAudioMode = AudioManager.MODE_NORMAL
-    private var savedIsSpeakerPhoneOn = false
-    private var savedIsMicrophoneMute = false
     private var isCallActive = false
+    private var activeFocusRequest: AudioFocusRequest? = null
 
     fun startCallAudio(enableSpeaker: Boolean = false) {
         if (isCallActive) return
         isCallActive = true
-
-        savedAudioMode = audioManager.mode
-        savedIsSpeakerPhoneOn = audioManager.isSpeakerphoneOn
-        savedIsMicrophoneMute = audioManager.isMicrophoneMute
 
         try {
             audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
@@ -40,6 +34,7 @@ class WebRtcAudioDeviceManager(private val context: Context) {
                         Log.d(tag, "Audio focus changed: $focusChange")
                     }
                     .build()
+                activeFocusRequest = focusRequest
                 audioManager.requestAudioFocus(focusRequest)
             } else {
                 @Suppress("DEPRECATION")
@@ -74,23 +69,30 @@ class WebRtcAudioDeviceManager(private val context: Context) {
     fun isMicrophoneMute(): Boolean = audioManager.isMicrophoneMute
 
     fun stopCallAudio() {
-        if (!isCallActive) return
         isCallActive = false
 
         try {
-            audioManager.mode = savedAudioMode
-            audioManager.isSpeakerphoneOn = savedIsSpeakerPhoneOn
-            audioManager.isMicrophoneMute = savedIsMicrophoneMute
-
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                // Focus will be abandoned automatically or explicitly
+                activeFocusRequest?.let {
+                    audioManager.abandonAudioFocusRequest(it)
+                }
+                activeFocusRequest = null
             } else {
                 @Suppress("DEPRECATION")
                 audioManager.abandonAudioFocus(null)
             }
-            Log.d(tag, "Call audio session stopped, restored previous audio state")
+
+            audioManager.isSpeakerphoneOn = false
+            audioManager.isMicrophoneMute = false
+            audioManager.mode = AudioManager.MODE_NORMAL
+
+            Log.d(tag, "Call audio session stopped, forced audio mode to MODE_NORMAL and abandoned focus")
         } catch (e: Exception) {
             Log.e(tag, "Error stopping call audio: ${e.message}")
         }
+    }
+
+    fun resetToNormal() {
+        stopCallAudio()
     }
 }

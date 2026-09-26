@@ -13,7 +13,19 @@ class SettingsViewModel(
     val userName: StateFlow<String> = appContainer.userPreferencesManager.userNameFlow
     val avatarColor: StateFlow<Long> = appContainer.userPreferencesManager.avatarColorFlow
     val themeMode: StateFlow<AppThemeMode> = appContainer.userPreferencesManager.themeModeFlow
+    val themeAccentColor: StateFlow<Long> = appContainer.userPreferencesManager.themeAccentColorFlow
     val profileImagePath: StateFlow<String?> = appContainer.userPreferencesManager.profileImagePathFlow
+
+    // Ringing & Sounds
+    val callRingtoneEnabled: StateFlow<Boolean> = appContainer.userPreferencesManager.callRingtoneEnabledFlow
+    val callVibrationEnabled: StateFlow<Boolean> = appContainer.userPreferencesManager.callVibrationEnabledFlow
+    val ringbackToneEnabled: StateFlow<Boolean> = appContainer.userPreferencesManager.ringbackToneEnabledFlow
+    val messageSoundEnabled: StateFlow<Boolean> = appContainer.userPreferencesManager.messageSoundEnabledFlow
+    val messageVibrationEnabled: StateFlow<Boolean> = appContainer.userPreferencesManager.messageVibrationEnabledFlow
+
+    // Updater
+    val autoCheckUpdates: StateFlow<Boolean> = appContainer.userPreferencesManager.autoCheckUpdatesFlow
+    val lastUpdateCheckTime: StateFlow<Long> = appContainer.userPreferencesManager.lastUpdateCheckTimeFlow
 
     val userId: String get() = appContainer.currentUserId
 
@@ -27,8 +39,40 @@ class SettingsViewModel(
         appContainer.userPreferencesManager.setAvatarColor(color)
     }
 
+    fun updateThemeAccentColor(color: Long) {
+        appContainer.userPreferencesManager.setThemeAccentColor(color)
+    }
+
     fun updateThemeMode(mode: AppThemeMode) {
         appContainer.userPreferencesManager.setThemeMode(mode)
+    }
+
+    fun setCallRingtoneEnabled(enabled: Boolean) {
+        appContainer.userPreferencesManager.setCallRingtoneEnabled(enabled)
+    }
+
+    fun setCallVibrationEnabled(enabled: Boolean) {
+        appContainer.userPreferencesManager.setCallVibrationEnabled(enabled)
+    }
+
+    fun setRingbackToneEnabled(enabled: Boolean) {
+        appContainer.userPreferencesManager.setRingbackToneEnabled(enabled)
+    }
+
+    fun setMessageSoundEnabled(enabled: Boolean) {
+        appContainer.userPreferencesManager.setMessageSoundEnabled(enabled)
+    }
+
+    fun setMessageVibrationEnabled(enabled: Boolean) {
+        appContainer.userPreferencesManager.setMessageVibrationEnabled(enabled)
+    }
+
+    fun setAutoCheckUpdates(enabled: Boolean) {
+        appContainer.userPreferencesManager.setAutoCheckUpdates(enabled)
+    }
+
+    fun setLastUpdateCheckTime(timestamp: Long) {
+        appContainer.userPreferencesManager.setLastUpdateCheckTime(timestamp)
     }
 
     fun saveProfileImageFromUri(androidContext: android.content.Context, uri: android.net.Uri) {

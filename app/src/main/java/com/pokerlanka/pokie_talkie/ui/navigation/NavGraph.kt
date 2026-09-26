@@ -23,10 +23,18 @@ import com.pokerlanka.pokie_talkie.ui.home.HomeViewModel
 
 import com.pokerlanka.pokie_talkie.ui.settings.SettingsScreen
 import com.pokerlanka.pokie_talkie.ui.settings.SettingsViewModel
+import com.pokerlanka.pokie_talkie.ui.settings.AppearanceSettingsScreen
+import com.pokerlanka.pokie_talkie.ui.settings.RingingSettingsScreen
+import com.pokerlanka.pokie_talkie.ui.settings.UpdateScreen
+import com.pokerlanka.pokie_talkie.ui.settings.AboutScreen
 
 sealed class Screen(val route: String) {
     object Home : Screen("home")
     object Settings : Screen("settings")
+    object AppearanceSettings : Screen("settings/appearance")
+    object RingingSettings : Screen("settings/ringing")
+    object UpdatesSettings : Screen("settings/updates")
+    object AboutSettings : Screen("settings/about")
     object Chat : Screen("chat/{peerId}") {
         fun createRoute(peerId: String) = "chat/$peerId"
     }
@@ -80,6 +88,46 @@ fun PokieNavGraph(
 
             SettingsScreen(
                 viewModel = settingsViewModel,
+                onBack = { navController.popBackStack() },
+                onNavigateToAppearance = { navController.navigate(Screen.AppearanceSettings.route) },
+                onNavigateToRinging = { navController.navigate(Screen.RingingSettings.route) },
+                onNavigateToUpdater = { navController.navigate(Screen.UpdatesSettings.route) },
+                onNavigateToAbout = { navController.navigate(Screen.AboutSettings.route) }
+            )
+        }
+
+        composable(Screen.AppearanceSettings.route) {
+            val settingsViewModel: SettingsViewModel = viewModel(
+                factory = SettingsViewModel.provideFactory(appContainer)
+            )
+            AppearanceSettingsScreen(
+                viewModel = settingsViewModel,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.RingingSettings.route) {
+            val settingsViewModel: SettingsViewModel = viewModel(
+                factory = SettingsViewModel.provideFactory(appContainer)
+            )
+            RingingSettingsScreen(
+                viewModel = settingsViewModel,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.UpdatesSettings.route) {
+            val settingsViewModel: SettingsViewModel = viewModel(
+                factory = SettingsViewModel.provideFactory(appContainer)
+            )
+            UpdateScreen(
+                viewModel = settingsViewModel,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.AboutSettings.route) {
+            AboutScreen(
                 onBack = { navController.popBackStack() }
             )
         }
