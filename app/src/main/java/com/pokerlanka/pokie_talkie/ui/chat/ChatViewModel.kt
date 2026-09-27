@@ -19,6 +19,7 @@ import com.pokerlanka.pokie_talkie.fcm.FcmSignalingClient
 import com.pokerlanka.pokie_talkie.lan.ConnectivityMonitor
 import com.pokerlanka.pokie_talkie.lan.ActiveTransportMode
 import com.pokerlanka.pokie_talkie.telecom.TelecomCallManager
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -41,7 +42,9 @@ class ChatViewModel(
     private val contactRepository: ContactRepository,
     private val fcmSignalingClient: FcmSignalingClient,
     private val telecomCallManager: TelecomCallManager,
-    private val connectivityMonitor: ConnectivityMonitor
+    private val connectivityMonitor: ConnectivityMonitor,
+    // Sends must outlive the screen, or leaving the chat strands the message in SENDING
+    private val appScope: CoroutineScope
 ) : ViewModel() {
 
     private val _inputText = MutableStateFlow("")
@@ -82,7 +85,7 @@ class ChatViewModel(
         if (text.isEmpty()) return
 
         _inputText.value = ""
-        viewModelScope.launch {
+        appScope.launch {
             val messageId = UUID.randomUUID().toString()
 
             chatRepository.saveMessage(
@@ -106,13 +109,14 @@ class ChatViewModel(
             } else {
                 MessageStatus.FAILED
             }
-            chatRepository.updateMessageStatus(messageId, finalStatus)
+            // Only if still SENDING: a delivery receipt may already have moved it to DELIVERED/READ
+            chatRepository.updateMessageStatusIfSending(messageId, finalStatus)
         }
     }
 
     fun sendSticker(sticker: Sticker) {
         _isStickerPickerOpen.value = false
-        viewModelScope.launch {
+        appScope.launch {
             val messageId = UUID.randomUUID().toString()
 
             chatRepository.saveMessage(
@@ -137,7 +141,8 @@ class ChatViewModel(
             } else {
                 MessageStatus.FAILED
             }
-            chatRepository.updateMessageStatus(messageId, finalStatus)
+            // Only if still SENDING: a delivery receipt may already have moved it to DELIVERED/READ
+            chatRepository.updateMessageStatusIfSending(messageId, finalStatus)
         }
     }
 
@@ -169,11 +174,12 @@ class ChatViewModel(
             contactRepository: ContactRepository,
             fcmSignalingClient: FcmSignalingClient,
             telecomCallManager: TelecomCallManager,
-            connectivityMonitor: ConnectivityMonitor
+            connectivityMonitor: ConnectivityMonitor,
+            appScope: CoroutineScope
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return ChatViewModel(peerId, myUserId, chatRepository, contactRepository, fcmSignalingClient, telecomCallManager, connectivityMonitor) as T
+                return ChatViewModel(peerId, myUserId, chatRepository, contactRepository, fcmSignalingClient, telecomCallManager, connectivityMonitor, appScope) as T
             }
         }
     }

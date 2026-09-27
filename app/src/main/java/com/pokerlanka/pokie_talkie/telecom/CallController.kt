@@ -32,10 +32,14 @@ class CallController(
 ) {
     private val tag = "CallController"
     private val isEndingCall = AtomicBoolean(false)
+    @Volatile
     private var lastEndedCallId: String? = null
     private var ringTimeoutJob: Job? = null
+    private val isStarted = AtomicBoolean(false)
 
-    init {
+    /** Starts the ring-timeout watcher. Called from AppContainer.initialize(), since this class is created lazily. */
+    fun start() {
+        if (!isStarted.compareAndSet(false, true)) return
         scope.launch {
             callRepository.currentCall.collect { session ->
                 if (session == null) {

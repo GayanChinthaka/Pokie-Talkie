@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -73,6 +74,10 @@ class ChatRepository(
 
     suspend fun updateMessageStatusIfNotRead(messageId: String, status: MessageStatus) {
         messageDao.updateMessageStatusIfNotRead(messageId, status)
+    }
+
+    suspend fun updateMessageStatusIfSending(messageId: String, status: MessageStatus) {
+        messageDao.updateMessageStatusIfSending(messageId, status)
     }
 
     suspend fun updateMessagesStatus(messageIds: List<String>, status: MessageStatus) {
@@ -176,7 +181,9 @@ class ContactRepository(
                 isOnlineLan = contact.isOnlineLan,
                 lastSeenTimestamp = contact.lastSeenTimestamp,
                 fcmToken = contact.fcmToken.ifBlank { existing.fcmToken },
-                avatarColor = if (contact.avatarColor != 0L) contact.avatarColor else existing.avatarColor
+                // No payload carries a colour, so an incoming Contact only ever has the
+                // default (0xFF00A884); always keep the stored one.
+                avatarColor = existing.avatarColor
             )
             contactDao.insertOrUpdateContact(merged)
         } else {
@@ -282,12 +289,21 @@ class CallRepository(
     private fun startDurationTimer() {
         if (durationTimerJob?.isActive == true) return
         val currentScope = scope ?: return
+        val timedCallId = _currentCall.value?.callId ?: return
         durationTimerJob = currentScope.launch(Dispatchers.Default) {
             var seconds = _currentCall.value?.durationSeconds ?: 0L
             while (isActive) {
                 delay(1000)
                 seconds++
-                _currentCall.value = _currentCall.value?.copy(durationSeconds = seconds)
+                // Atomic, and only while this same call is still connected, so a tick can't
+                // overwrite a concurrent state/type change or the ended state with a stale copy
+                _currentCall.update { session ->
+                    if (session != null && session.callId == timedCallId && session.state == CallState.CONNECTED) {
+                        session.copy(durationSeconds = seconds)
+                    } else {
+                        session
+                    }
+                }
             }
         }
     }

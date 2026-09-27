@@ -28,6 +28,7 @@ class PokieLocalService : Service() {
     private var wifiLock: WifiManager.WifiLock? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var isCallActive = false
+    private var isVideoCallActive = false
 
     companion object {
         const val CHANNEL_SERVICE_ID = "pokie_proximity_service"
@@ -114,17 +115,19 @@ class PokieLocalService : Service() {
             }
             ACTION_CALL_STARTED -> {
                 isCallActive = true
-                val isVideo = intent?.getBooleanExtra(EXTRA_IS_VIDEO, false) ?: false
+                isVideoCallActive = intent?.getBooleanExtra(EXTRA_IS_VIDEO, false) ?: false
                 acquireCallWakeLock()
-                updateForegroundNotification(inCall = true, isVideo = isVideo)
+                updateForegroundNotification(inCall = true, isVideo = isVideoCallActive)
             }
             ACTION_CALL_ENDED -> {
                 isCallActive = false
+                isVideoCallActive = false
                 releaseCallWakeLock()
                 updateForegroundNotification(inCall = false, isVideo = false)
             }
             ACTION_START -> {
-                updateForegroundNotification(inCall = isCallActive, isVideo = false)
+                // Keep the camera type if a video call is running (e.g. MainActivity recreated on rotation)
+                updateForegroundNotification(inCall = isCallActive, isVideo = isVideoCallActive)
             }
         }
 

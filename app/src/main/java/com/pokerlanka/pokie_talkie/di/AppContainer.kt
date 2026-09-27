@@ -205,6 +205,9 @@ class AppContainer(val context: Context) {
         // Setup WebRTC Callbacks
         setupWebRtcCallbacks()
 
+        // Ring timeout must run for the first call too, before anything else touches the lazy controller
+        callController.start()
+
         // Start Bluetooth listeners
         try {
             bluetoothTransportManager.startServer()
@@ -404,18 +407,24 @@ class AppContainer(val context: Context) {
                     Log.i(tag, "Received Bluetooth call ANSWER from ${payload.senderName}")
                     PokieConnectionService.activeConnection?.markConnected()
                     callRepository.updateCallState(CallState.CONNECTED)
-                    val peerBtAddress = bluetoothTransportManager.getKnownOrPairedAddress(
-                        payload.senderId,
-                        payload.senderName,
-                        null
-                    )
-                    if (!peerBtAddress.isNullOrBlank()) {
-                        applicationScope.launch(Dispatchers.IO) {
+                    val dialedPeerId = currentCall.peerId
+                    applicationScope.launch(Dispatchers.IO) {
+                        // The ANSWER may arrive over LAN, so peerAddressMap can be empty: also try the
+                        // address stored on the contact, and the dialed contact ID when it is itself a MAC.
+                        val storedAddress = contactRepository.getContact(payload.senderId)?.bluetoothAddress?.takeIf { it.isNotBlank() }
+                            ?: contactRepository.getContact(dialedPeerId)?.bluetoothAddress?.takeIf { it.isNotBlank() }
+                            ?: dialedPeerId.takeIf { android.bluetooth.BluetoothAdapter.checkBluetoothAddress(it) }
+                        val peerBtAddress = bluetoothTransportManager.getKnownOrPairedAddress(
+                            payload.senderId,
+                            payload.senderName,
+                            storedAddress
+                        )
+                        if (!peerBtAddress.isNullOrBlank()) {
                             kotlinx.coroutines.delay(250)
                             bluetoothVoiceManager.startOutgoingCall(peerBtAddress)
+                        } else {
+                            Log.e(tag, "Cannot start Bluetooth voice: unknown MAC for ${payload.senderId}")
                         }
-                    } else {
-                        Log.e(tag, "Cannot start Bluetooth voice: unknown MAC for ${payload.senderId}")
                     }
                 } else {
                     payload.sdp?.let { sdpString ->

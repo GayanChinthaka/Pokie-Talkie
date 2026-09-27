@@ -61,8 +61,9 @@ class LanSocketServer(
                         try { clientSocket.close() } catch (ignored: Exception) {}
                         continue
                     }
+                    // Count here in the accept loop, not in the child, so a burst can't pass the cap
+                    activeConnections.incrementAndGet()
                     launch(Dispatchers.IO) {
-                        activeConnections.incrementAndGet()
                         try {
                             handleClientConnection(clientSocket)
                         } finally {

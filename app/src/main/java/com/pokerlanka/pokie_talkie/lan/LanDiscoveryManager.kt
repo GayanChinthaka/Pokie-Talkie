@@ -309,8 +309,20 @@ class LanDiscoveryManager(
 
             try {
                 nsdManager.resolveService(serviceInfo, resolveListener)
-                val success = deferred.await()
-                if (success) {
+                // Some devices never deliver either callback; without a timeout this single
+                // worker would block and no later peer would ever be resolved.
+                val success = withTimeoutOrNull(10_000L) { deferred.await() }
+                if (success == null) {
+                    Log.w(tag, "Resolve timed out for ${serviceInfo.serviceName} (attempt $attempt)")
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                        try {
+                            nsdManager.stopServiceResolution(resolveListener)
+                        } catch (e: Exception) {
+                            Log.w(tag, "stopServiceResolution failed: ${e.message}")
+                        }
+                    }
+                }
+                if (success == true) {
                     resolved = true
                 } else {
                     delay(600L * attempt)

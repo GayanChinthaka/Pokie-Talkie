@@ -196,7 +196,7 @@ class TelecomCallManager(
             state = CallState.RINGING_OUTGOING,
             isBluetoothVoice = isBluetoothVoice
         )
-        PokieLocalService.notifyCallStarted(context)
+        PokieLocalService.notifyCallStarted(context, isVideo = (callType == CallType.VIDEO && !isBluetoothVoice))
         callRepository.setCallSession(session)
         ringtoneVibrationManager.startRingbackTone()
 

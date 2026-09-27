@@ -148,7 +148,8 @@ fun PokieNavGraph(
                     contactRepository = appContainer.contactRepository,
                     fcmSignalingClient = appContainer.fcmSignalingClient,
                     telecomCallManager = appContainer.telecomCallManager,
-                    connectivityMonitor = appContainer.connectivityMonitor
+                    connectivityMonitor = appContainer.connectivityMonitor,
+                    appScope = appContainer.applicationScope
                 )
             )
 
@@ -184,7 +185,13 @@ fun PokieNavGraph(
 
             CallScreen(
                 viewModel = callViewModel,
-                onCallEnded = { navController.safePopBackStack() }
+                // Not safePopBackStack: a call can end while this entry is still mid-transition
+                // (not RESUMED), and that pop must not be skipped. The route check stops a double pop.
+                onCallEnded = {
+                    if (navController.currentDestination?.route == Screen.Call.route) {
+                        navController.popBackStack()
+                    }
+                }
             )
         }
 

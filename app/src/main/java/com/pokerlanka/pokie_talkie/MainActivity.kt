@@ -87,9 +87,13 @@ class MainActivity : ComponentActivity() {
         val app = application as PokieApp
         val container = app.appContainer
 
-        intent?.getStringExtra("peerId")?.let { peerId ->
-            if (peerId.isNotBlank()) {
-                pendingChatPeerId.value = peerId
+        // Only on a fresh start: on recreation (rotation, theme change) getIntent() still carries the
+        // old notification's peerId, and the restored back stack already has that chat.
+        if (savedInstanceState == null) {
+            intent?.getStringExtra("peerId")?.let { peerId ->
+                if (peerId.isNotBlank()) {
+                    pendingChatPeerId.value = peerId
+                }
             }
         }
 

@@ -213,7 +213,11 @@ class WebRtcManager(
                         iceDisconnectTimerJob?.cancel()
                         iceDisconnectTimerJob = null
                         _isCallConnected.value = false
-                        onCallDisconnected?.invoke()
+                        // Leave the libwebrtc signaling thread before tearing down: endCall() takes
+                        // this manager's lock and disposes the PeerConnection that is invoking us.
+                        scope.launch(Dispatchers.Default) {
+                            onCallDisconnected?.invoke()
+                        }
                     }
                     PeerConnection.IceConnectionState.CLOSED -> {
                         // Ignore connection closed

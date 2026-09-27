@@ -102,6 +102,8 @@ class CallViewModel(
         if (isBt) {
             callRepository.updateCallState(CallState.CONNECTED)
             PokieConnectionService.activeConnection?.setActive()
+            // Microphone foreground type, so AudioRecord keeps working when the app is backgrounded
+            com.pokerlanka.pokie_talkie.service.PokieLocalService.notifyCallStarted(telecomCallManager.context, isVideo = false)
             fcmSignalingClient.sendBluetoothCallAnswer(session.peerId, session.callId)
             bluetoothVoiceManager.startVoiceServer()
         } else {
