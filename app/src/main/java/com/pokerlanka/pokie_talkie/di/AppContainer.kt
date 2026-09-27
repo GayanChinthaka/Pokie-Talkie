@@ -109,6 +109,8 @@ class AppContainer(val context: Context) {
         ConnectivityMonitor(context, applicationScope, wifiDirectManager, bluetoothTransportManager)
     }
 
+    val fcmV1Client by lazy { com.pokerlanka.pokie_talkie.fcm.FcmV1Client(context) }
+
     val fcmSignalingClient by lazy {
         FcmSignalingClient(
             contactRepository = contactRepository,
@@ -117,7 +119,8 @@ class AppContainer(val context: Context) {
             userPreferencesManager = userPreferencesManager,
             scope = applicationScope,
             myUserId = currentUserId,
-            userNameProvider = { currentUserName }
+            userNameProvider = { currentUserName },
+            fcmV1Client = fcmV1Client
         )
     }
 
@@ -191,6 +194,28 @@ class AppContainer(val context: Context) {
             val savedFcmToken = userPreferencesManager.getFcmToken()
             lanDiscoveryManager.initialize(currentUserId, currentUserName, lanSocketServer.serverPort, savedFcmToken)
             lanDiscoveryManager.startDiscoveryAndRegistration()
+        }
+
+        // Fetch fresh FCM registration token from Google Play Services
+        try {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+                .addOnCompleteListener { task ->
+                    if (task.isSuccessful) {
+                        val token = task.result
+                        if (!token.isNullOrBlank()) {
+                            Log.i(tag, "FCM registration token fetched: ${token.take(15)}...")
+                            userPreferencesManager.setFcmToken(token)
+                            lanDiscoveryManager.updateFcmToken(token)
+                            applicationScope.launch(Dispatchers.IO) {
+                                contactRepository.updateFcmToken(currentUserId, token)
+                            }
+                        }
+                    } else {
+                        Log.w(tag, "Fetching FCM token failed: ${task.exception?.message}")
+                    }
+                }
+        } catch (e: Exception) {
+            Log.w(tag, "FirebaseMessaging token fetch error: ${e.message}")
         }
 
         // Item 3.7: link lanDiscoveryManager for re-resolving failed LAN sends
@@ -349,7 +374,7 @@ class AppContainer(val context: Context) {
         }
     }
 
-    private fun handleIncomingSignalingPayload(payload: SignalingPayload, source: String) {
+    fun handleIncomingSignalingPayload(payload: SignalingPayload, source: String) {
         try {
             Log.d(tag, "Handling incoming $source payload [${payload.type}] from ${payload.senderName}")
             when (payload.type) {

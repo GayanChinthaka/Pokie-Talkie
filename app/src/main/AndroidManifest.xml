@@ -110,6 +110,15 @@
             android:exported="false"
             android:foregroundServiceType="connectedDevice|phoneCall|microphone|camera" />
 
+        <!-- Firebase Cloud Messaging Listener Service -->
+        <service
+            android:name=".fcm.PokieFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <!-- Call Action Receiver for Notification Answer/Decline buttons -->
         <receiver
             android:name=".telecom.CallActionReceiver"

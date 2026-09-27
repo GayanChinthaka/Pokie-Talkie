@@ -44,13 +44,9 @@ class PokieLocalService : Service() {
                 action = ACTION_START
             }
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
-                    context.startService(intent)
-                }
+                context.startService(intent)
             } catch (e: Exception) {
-                Log.e("PokieLocalService", "Failed to start PokieLocalService: ${e.message}")
+                Log.d("PokieLocalService", "startService skipped: ${e.message}")
             }
         }
 
@@ -99,7 +95,6 @@ class PokieLocalService : Service() {
         super.onCreate()
         Log.i(tag, "PokieLocalService onCreate")
         createServiceNotificationChannel()
-        acquireLocks()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -116,6 +111,7 @@ class PokieLocalService : Service() {
             ACTION_CALL_STARTED -> {
                 isCallActive = true
                 isVideoCallActive = intent?.getBooleanExtra(EXTRA_IS_VIDEO, false) ?: false
+                acquireLocks()
                 acquireCallWakeLock()
                 updateForegroundNotification(inCall = true, isVideo = isVideoCallActive)
             }
@@ -123,11 +119,15 @@ class PokieLocalService : Service() {
                 isCallActive = false
                 isVideoCallActive = false
                 releaseCallWakeLock()
-                updateForegroundNotification(inCall = false, isVideo = false)
+                releaseLocks()
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                return START_NOT_STICKY
             }
             ACTION_START -> {
-                // Keep the camera type if a video call is running (e.g. MainActivity recreated on rotation)
-                updateForegroundNotification(inCall = isCallActive, isVideo = isVideoCallActive)
+                if (isCallActive) {
+                    updateForegroundNotification(inCall = true, isVideo = isVideoCallActive)
+                }
             }
         }
 

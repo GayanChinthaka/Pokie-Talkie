@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.kapt")
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -12,8 +13,8 @@ android {
         applicationId = "com.pokerlanka.pokie_talkie"
         minSdk = 26
         targetSdk = 34
-        versionCode = 210
-        versionName = "2.1.0"
+        versionCode = 300
+        versionName = "3.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -117,6 +118,11 @@ dependencies {
 
     // JSON Parsing
     implementation("com.google.code.gson:gson:2.10.1")
+
+    // Firebase Cloud Messaging
+    val firebaseBom = platform("com.google.firebase:firebase-bom:33.3.0")
+    implementation(firebaseBom)
+    implementation("com.google.firebase:firebase-messaging-ktx")
 
     // Testing
     testImplementation("junit:junit:4.13.2")

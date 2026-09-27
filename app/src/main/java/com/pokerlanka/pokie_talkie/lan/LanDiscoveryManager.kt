@@ -174,6 +174,9 @@ class LanDiscoveryManager(
             if (btAddress.isNotBlank() && btAddress != "02:00:00:00:00:00") {
                 setAttribute("btAddress", btAddress)
             }
+            if (myFcmToken.isNotBlank()) {
+                setAttribute("fcmToken", myFcmToken)
+            }
         }
 
         registrationListener = object : NsdManager.RegistrationListener {
@@ -343,6 +346,7 @@ class LanDiscoveryManager(
         val peerUserName = attributes["userName"]?.let { String(it) } ?: service.serviceName
         val peerBtAddress = attributes["btAddress"]?.let { String(it) } ?: ""
         val peerBtName = attributes["btName"]?.let { String(it) } ?: ""
+        val peerFcmToken = attributes["fcmToken"]?.let { String(it) } ?: ""
 
         if (peerUserId == myUserId) return
 
@@ -371,6 +375,7 @@ class LanDiscoveryManager(
             val updatedPeer = Contact(
                 id = peerUserId,
                 name = peerUserName,
+                fcmToken = peerFcmToken.ifBlank { existing?.fcmToken ?: "" },
                 ipAddress = ipAddress,
                 port = port,
                 bluetoothAddress = resolvedBt,

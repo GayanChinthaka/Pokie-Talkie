@@ -29,7 +29,8 @@ class FcmSignalingClient(
     private val userPreferencesManager: UserPreferencesManager,
     private val scope: CoroutineScope,
     private val myUserId: String,
-    private val userNameProvider: () -> String = { userPreferencesManager.getUserName() }
+    private val userNameProvider: () -> String = { userPreferencesManager.getUserName() },
+    var fcmV1Client: FcmV1Client? = null
 ) {
     private val myUserName: String get() = userNameProvider()
     private val tag = "FcmSignalingClient"
@@ -292,8 +293,21 @@ class FcmSignalingClient(
                 return@withContext DispatchResult(success = false, isLan = false)
             }
 
-            // Priority 2: Bluetooth RFCOMM Direct Proximity
-            Log.d(tag, "Attempting Priority 2 Bluetooth RFCOMM to $targetId (${contact?.name})")
+            // Priority 2: FCM Cloud Push (High priority remote wake-up)
+            val fcmToken = contact?.fcmToken
+            if (!fcmToken.isNullOrBlank() && fcmV1Client?.isConfigured() == true) {
+                Log.d(tag, "Attempting Priority 2 FCM Cloud Push to ${contact.name} ($targetId) token: ${fcmToken.take(15)}...")
+                val fcmSuccess = fcmV1Client?.sendPush(fcmToken, payload) == true
+                if (fcmSuccess) {
+                    Log.i(tag, "FCM Cloud push dispatched successfully to ${contact.name}")
+                    return@withContext DispatchResult(success = true, isLan = false)
+                } else {
+                    Log.w(tag, "FCM Cloud push failed to $targetId")
+                }
+            }
+
+            // Priority 3: Bluetooth RFCOMM Direct Proximity
+            Log.d(tag, "Attempting Priority 3 Bluetooth RFCOMM to $targetId (${contact?.name})")
             val outboundPayload = if (payload.type == SignalingType.OFFER && !payload.isBluetoothVoice) {
                 Log.i(tag, "LAN socket failed for WebRTC offer. Falling back to Bluetooth Voice call offer for $targetId")
                 onCallFallbackToBluetooth?.invoke(payload.callId ?: "")
