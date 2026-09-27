@@ -2,9 +2,12 @@ package com.pokerlanka.pokie_talkie.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
 import com.pokerlanka.pokie_talkie.data.local.AppThemeMode
 import com.pokerlanka.pokie_talkie.di.AppContainer
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 
 class SettingsViewModel(
     private val appContainer: AppContainer
@@ -76,30 +79,46 @@ class SettingsViewModel(
     }
 
     fun saveProfileImageFromUri(androidContext: android.content.Context, uri: android.net.Uri) {
-        try {
-            val inputStream = androidContext.contentResolver.openInputStream(uri) ?: return
-            val file = java.io.File(androidContext.filesDir, "my_profile_photo.jpg")
-            val outputStream = java.io.FileOutputStream(file)
-            inputStream.use { input ->
-                outputStream.use { output ->
-                    input.copyTo(output)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val inputStream = androidContext.contentResolver.openInputStream(uri) ?: return@launch
+                val filename = "profile_photo_${System.currentTimeMillis()}.jpg"
+                val file = java.io.File(androidContext.filesDir, filename)
+                val outputStream = java.io.FileOutputStream(file)
+                inputStream.use { input ->
+                    outputStream.use { output ->
+                        input.copyTo(output)
+                    }
                 }
+                // Delete old profile image if exists
+                val oldPath = appContainer.userPreferencesManager.getProfileImagePath()
+                if (!oldPath.isNullOrBlank()) {
+                    try {
+                        val oldFile = java.io.File(oldPath)
+                        if (oldFile.exists()) oldFile.delete()
+                    } catch (ignored: Exception) {}
+                }
+                appContainer.userPreferencesManager.setProfileImagePath(file.absolutePath)
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-            appContainer.userPreferencesManager.setProfileImagePath(file.absolutePath)
-        } catch (e: Exception) {
-            e.printStackTrace()
         }
     }
 
     fun removeProfileImage(androidContext: android.content.Context) {
-        try {
-            val file = java.io.File(androidContext.filesDir, "my_profile_photo.jpg")
-            if (file.exists()) {
-                file.delete()
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val oldPath = appContainer.userPreferencesManager.getProfileImagePath()
+                if (!oldPath.isNullOrBlank()) {
+                    val file = java.io.File(oldPath)
+                    if (file.exists()) {
+                        file.delete()
+                    }
+                }
+                appContainer.userPreferencesManager.setProfileImagePath(null)
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-            appContainer.userPreferencesManager.setProfileImagePath(null)
-        } catch (e: Exception) {
-            e.printStackTrace()
         }
     }
 

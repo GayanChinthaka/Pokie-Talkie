@@ -55,7 +55,6 @@ import androidx.compose.ui.unit.sp
 import com.pokerlanka.pokie_talkie.BuildConfig
 import com.pokerlanka.pokie_talkie.ui.components.Material3SettingsGroup
 import com.pokerlanka.pokie_talkie.ui.components.Material3SettingsItem
-import com.pokerlanka.pokie_talkie.ui.theme.PokieEmerald
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -215,7 +214,7 @@ fun AboutScreen(
                         Material3SettingsItem(
                             icon = Icons.Default.Lock,
                             title = { Text("Private Local Vault") },
-                            description = { Text("Encrypted Room SQLite database · 100% On-Device · Zero Cloud") }
+                            description = { Text("Room SQLite database · 100% On-Device · Zero Cloud") }
                         )
                     )
                 )

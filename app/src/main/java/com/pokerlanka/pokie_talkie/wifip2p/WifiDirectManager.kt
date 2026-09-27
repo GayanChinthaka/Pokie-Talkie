@@ -181,7 +181,7 @@ class WifiDirectManager(
         } else if (isOwner) {
             // Group owner is self, client will connect to 192.168.49.1
             _connectedIp.value = "192.168.49.1"
-            onPeerIpResolved("192.168.49.1", true)
+            // Item 3.13: Do not add self as contact
         }
     }
 

@@ -64,9 +64,12 @@ class PokieLocalService : Service() {
             }
         }
 
-        fun notifyCallStarted(context: Context) {
+        const val EXTRA_IS_VIDEO = "extra_is_video"
+
+        fun notifyCallStarted(context: Context, isVideo: Boolean = false) {
             val intent = Intent(context, PokieLocalService::class.java).apply {
                 action = ACTION_CALL_STARTED
+                putExtra(EXTRA_IS_VIDEO, isVideo)
             }
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -111,14 +114,17 @@ class PokieLocalService : Service() {
             }
             ACTION_CALL_STARTED -> {
                 isCallActive = true
-                updateForegroundNotification(inCall = true)
+                val isVideo = intent?.getBooleanExtra(EXTRA_IS_VIDEO, false) ?: false
+                acquireCallWakeLock()
+                updateForegroundNotification(inCall = true, isVideo = isVideo)
             }
             ACTION_CALL_ENDED -> {
                 isCallActive = false
-                updateForegroundNotification(inCall = false)
+                releaseCallWakeLock()
+                updateForegroundNotification(inCall = false, isVideo = false)
             }
             ACTION_START -> {
-                updateForegroundNotification(inCall = isCallActive)
+                updateForegroundNotification(inCall = isCallActive, isVideo = false)
             }
         }
 
@@ -129,7 +135,7 @@ class PokieLocalService : Service() {
         return START_STICKY
     }
 
-    private fun updateForegroundNotification(inCall: Boolean) {
+    private fun updateForegroundNotification(inCall: Boolean, isVideo: Boolean = false) {
         val notification = buildServiceNotification(inCall)
 
         try {
@@ -140,14 +146,31 @@ class PokieLocalService : Service() {
                     true
                 }
 
-                val serviceType = if (hasBtConnect) {
+                val connectedDeviceType = if (hasBtConnect) {
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
                 } else {
                     0
                 }
 
-                if (serviceType != 0) {
-                    startForeground(NOTIFICATION_ID, notification, serviceType)
+                if (inCall) {
+                    var callServiceType = connectedDeviceType or
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL or
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                    if (isVideo) {
+                        callServiceType = callServiceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+                    }
+
+                    try {
+                        startForeground(NOTIFICATION_ID, notification, callServiceType)
+                        return
+                    } catch (e: Exception) {
+                        Log.w(tag, "startForeground with callServiceType failed ($e), falling back to CONNECTED_DEVICE")
+                    }
+                }
+
+                // Fallback or not in call:
+                if (connectedDeviceType != 0) {
+                    startForeground(NOTIFICATION_ID, notification, connectedDeviceType)
                 } else {
                     startForeground(NOTIFICATION_ID, notification)
                 }
@@ -155,7 +178,7 @@ class PokieLocalService : Service() {
                 startForeground(NOTIFICATION_ID, notification)
             }
         } catch (e: Exception) {
-            Log.w(tag, "startForeground with serviceType failed, falling back to simple startForeground: ${e.message}")
+            Log.w(tag, "startForeground failed, falling back to simple startForeground: ${e.message}")
             try {
                 startForeground(NOTIFICATION_ID, notification)
             } catch (e2: Exception) {
@@ -217,15 +240,40 @@ class PokieLocalService : Service() {
                 acquire()
             }
             Log.d(tag, "WifiLock acquired")
-
-            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-            wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "PokieLocalService:CpuWakeLock").apply {
-                setReferenceCounted(false)
-                acquire(10 * 60 * 1000L)
-            }
-            Log.d(tag, "WakeLock acquired")
         } catch (e: Exception) {
-            Log.e(tag, "Error acquiring locks: ${e.message}")
+            Log.e(tag, "Error acquiring wifiLock: ${e.message}")
+        }
+    }
+
+    private fun acquireCallWakeLock() {
+        try {
+            if (wakeLock == null) {
+                val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+                wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "PokieLocalService:CallCpuWakeLock").apply {
+                    setReferenceCounted(false)
+                }
+            }
+            wakeLock?.let {
+                if (!it.isHeld) {
+                    it.acquire()
+                    Log.d(tag, "Call WakeLock acquired")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Error acquiring call wakeLock: ${e.message}")
+        }
+    }
+
+    private fun releaseCallWakeLock() {
+        try {
+            wakeLock?.let {
+                if (it.isHeld) {
+                    it.release()
+                    Log.d(tag, "Call WakeLock released")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Error releasing call wakeLock: ${e.message}")
         }
     }
 
@@ -235,9 +283,7 @@ class PokieLocalService : Service() {
                 if (it.isHeld) it.release()
             }
             wifiLock = null
-            wakeLock?.let {
-                if (it.isHeld) it.release()
-            }
+            releaseCallWakeLock()
             wakeLock = null
         } catch (e: Exception) {
             Log.e(tag, "Error releasing locks: ${e.message}")

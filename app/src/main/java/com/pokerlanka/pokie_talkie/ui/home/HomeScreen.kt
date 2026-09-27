@@ -67,7 +67,6 @@ import com.pokerlanka.pokie_talkie.ui.components.LanStatusBadge
 import com.pokerlanka.pokie_talkie.ui.dev.DevConfig
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkCard
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkInput
-import com.pokerlanka.pokie_talkie.ui.theme.PokieEmerald
 import com.pokerlanka.pokie_talkie.ui.theme.PokieLanActiveBadge
 import com.pokerlanka.pokie_talkie.ui.theme.PokieTextPrimary
 import com.pokerlanka.pokie_talkie.ui.theme.PokieTextSecondary
@@ -192,7 +191,7 @@ fun HomeScreen(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = viewModel::openAddContactDialog,
-                containerColor = PokieEmerald,
+                containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = Color.White,
                 shape = CircleShape,
                 modifier = Modifier.padding(bottom = 12.dp, end = 4.dp)
@@ -265,14 +264,14 @@ fun HomeScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Surface(
                             shape = CircleShape,
-                            color = PokieEmerald.copy(alpha = 0.15f),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
                             modifier = Modifier.size(72.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = Icons.Default.Wifi,
                                     contentDescription = null,
-                                    tint = PokieEmerald,
+                                    tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(36.dp)
                                 )
                             }
@@ -294,7 +293,7 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.height(16.dp))
                         Button(
                             onClick = viewModel::openAddContactDialog,
-                            colors = ButtonDefaults.buttonColors(containerColor = PokieEmerald)
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                         ) {
                             Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
@@ -325,12 +324,12 @@ fun HomeScreen(
     if (state.showEditProfileDialog) {
         AlertDialog(
             onDismissRequest = viewModel::closeEditProfileDialog,
-            title = { Text("Your Profile Name", color = PokieTextPrimary) },
+            title = { Text("Your Profile Name", color = MaterialTheme.colorScheme.onSurface) },
             text = {
                 Column {
                     Text(
                         "This name will be broadcast to family members on your WiFi network.",
-                        color = PokieTextSecondary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp
                     )
                     Spacer(modifier = Modifier.height(12.dp))
@@ -340,8 +339,8 @@ fun HomeScreen(
                         placeholder = { Text("e.g. Dad, Mom, Living Room") },
                         singleLine = true,
                         colors = TextFieldDefaults.colors(
-                            focusedTextColor = PokieTextPrimary,
-                            unfocusedTextColor = PokieTextPrimary
+                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                         ),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -350,14 +349,14 @@ fun HomeScreen(
             confirmButton = {
                 Button(
                     onClick = { viewModel.saveProfileName(editNameInput) },
-                    colors = ButtonDefaults.buttonColors(containerColor = PokieEmerald)
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
                     Text("Save")
                 }
             },
             dismissButton = {
                 TextButton(onClick = viewModel::closeEditProfileDialog) {
-                    Text("Cancel", color = PokieTextSecondary)
+                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             },
             containerColor = MaterialTheme.colorScheme.surface
@@ -368,12 +367,12 @@ fun HomeScreen(
     if (state.showAddContactDialog) {
         AlertDialog(
             onDismissRequest = viewModel::closeAddContactDialog,
-            title = { Text("Add Device / Contact", color = PokieTextPrimary) },
+            title = { Text("Add Device / Contact", color = MaterialTheme.colorScheme.onSurface) },
             text = {
                 Column {
                     Text(
                         "Enter the name and local IP address (e.g. 192.168.1.50) of the device.",
-                        color = PokieTextSecondary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp
                     )
                     Spacer(modifier = Modifier.height(12.dp))
@@ -383,8 +382,8 @@ fun HomeScreen(
                         placeholder = { Text("Device Name (e.g. Mom's Phone)") },
                         singleLine = true,
                         colors = TextFieldDefaults.colors(
-                            focusedTextColor = PokieTextPrimary,
-                            unfocusedTextColor = PokieTextPrimary
+                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                         ),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -395,8 +394,8 @@ fun HomeScreen(
                         placeholder = { Text("Local IP Address (e.g. 192.168.1.100)") },
                         singleLine = true,
                         colors = TextFieldDefaults.colors(
-                            focusedTextColor = PokieTextPrimary,
-                            unfocusedTextColor = PokieTextPrimary
+                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                         ),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -411,14 +410,14 @@ fun HomeScreen(
                             addContactIp = ""
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = PokieEmerald)
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
                     Text("Add")
                 }
             },
             dismissButton = {
                 TextButton(onClick = viewModel::closeAddContactDialog) {
-                    Text("Cancel", color = PokieTextSecondary)
+                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             },
             containerColor = MaterialTheme.colorScheme.surface
@@ -483,7 +482,7 @@ fun ContactItemCard(
                 Spacer(modifier = Modifier.width(10.dp))
                 Surface(
                     shape = CircleShape,
-                    color = PokieEmerald,
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.defaultMinSize(minWidth = 24.dp, minHeight = 24.dp)
                 ) {
                     Box(

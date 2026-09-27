@@ -61,7 +61,6 @@ import com.pokerlanka.pokie_talkie.ui.components.SwipeableIncomingCallControl
 import com.pokerlanka.pokie_talkie.ui.theme.PokieCallGreen
 import com.pokerlanka.pokie_talkie.ui.theme.PokieCallRed
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkBg
-import com.pokerlanka.pokie_talkie.ui.theme.PokieEmerald
 import com.pokerlanka.pokie_talkie.ui.theme.PokieLanActiveBadge
 import com.pokerlanka.pokie_talkie.ui.theme.PokieTextSecondary
 import kotlinx.coroutines.delay
@@ -287,12 +286,12 @@ fun DevMockCallScreen(
                         modifier = Modifier
                             .size(160.dp)
                             .clip(CircleShape)
-                            .background(PokieEmerald.copy(alpha = 0.15f))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
                     )
                     AvatarView(
                         name = peerName,
                         size = 120.dp,
-                        backgroundColor = PokieEmerald
+                        backgroundColor = MaterialTheme.colorScheme.primary
                     )
                 }
             }

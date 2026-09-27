@@ -28,6 +28,9 @@ import com.pokerlanka.pokie_talkie.ui.settings.RingingSettingsScreen
 import com.pokerlanka.pokie_talkie.ui.settings.UpdateScreen
 import com.pokerlanka.pokie_talkie.ui.settings.AboutScreen
 
+import android.net.Uri
+import androidx.lifecycle.Lifecycle
+
 sealed class Screen(val route: String) {
     object Home : Screen("home")
     object Settings : Screen("settings")
@@ -36,15 +39,15 @@ sealed class Screen(val route: String) {
     object UpdatesSettings : Screen("settings/updates")
     object AboutSettings : Screen("settings/about")
     object Chat : Screen("chat/{peerId}") {
-        fun createRoute(peerId: String) = "chat/$peerId"
+        fun createRoute(peerId: String) = "chat/${Uri.encode(peerId)}"
     }
     object Call : Screen("call/{peerId}/{callType}") {
-        fun createRoute(peerId: String, callType: CallType) = "call/$peerId/${callType.name}"
+        fun createRoute(peerId: String, callType: CallType) = "call/${Uri.encode(peerId)}/${callType.name}"
     }
     object DevHub : Screen("dev_hub")
     object DevMockCall : Screen("dev_mock_call/{peerName}/{callType}/{callState}") {
         fun createRoute(peerName: String, callType: CallType, callState: CallState) =
-            "dev_mock_call/$peerName/${callType.name}/${callState.name}"
+            "dev_mock_call/${Uri.encode(peerName)}/${callType.name}/${callState.name}"
     }
 }
 
@@ -88,7 +91,7 @@ fun PokieNavGraph(
 
             SettingsScreen(
                 viewModel = settingsViewModel,
-                onBack = { navController.popBackStack() },
+                onBack = { navController.safePopBackStack() },
                 onNavigateToAppearance = { navController.navigate(Screen.AppearanceSettings.route) },
                 onNavigateToRinging = { navController.navigate(Screen.RingingSettings.route) },
                 onNavigateToUpdater = { navController.navigate(Screen.UpdatesSettings.route) },
@@ -102,7 +105,7 @@ fun PokieNavGraph(
             )
             AppearanceSettingsScreen(
                 viewModel = settingsViewModel,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.safePopBackStack() }
             )
         }
 
@@ -112,7 +115,7 @@ fun PokieNavGraph(
             )
             RingingSettingsScreen(
                 viewModel = settingsViewModel,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.safePopBackStack() }
             )
         }
 
@@ -122,13 +125,13 @@ fun PokieNavGraph(
             )
             UpdateScreen(
                 viewModel = settingsViewModel,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.safePopBackStack() }
             )
         }
 
         composable(Screen.AboutSettings.route) {
             AboutScreen(
-                onBack = { navController.popBackStack() }
+                onBack = { navController.safePopBackStack() }
             )
         }
 
@@ -151,7 +154,7 @@ fun PokieNavGraph(
 
             ChatScreen(
                 viewModel = chatViewModel,
-                onBack = { navController.popBackStack() },
+                onBack = { navController.safePopBackStack() },
                 onNavigateToCall = { targetPeerId, callType ->
                     navController.navigate(Screen.Call.createRoute(targetPeerId, callType))
                 },
@@ -174,13 +177,14 @@ fun PokieNavGraph(
                     fcmSignalingClient = appContainer.fcmSignalingClient,
                     telecomCallManager = appContainer.telecomCallManager,
                     bluetoothVoiceManager = appContainer.bluetoothVoiceManager,
-                    ringtoneVibrationManager = appContainer.ringtoneVibrationManager
+                    ringtoneVibrationManager = appContainer.ringtoneVibrationManager,
+                    callController = appContainer.callController
                 )
             )
 
             CallScreen(
                 viewModel = callViewModel,
-                onCallEnded = { navController.popBackStack() }
+                onCallEnded = { navController.safePopBackStack() }
             )
         }
 
@@ -188,7 +192,7 @@ fun PokieNavGraph(
             composable(Screen.DevHub.route) {
                 DevPreviewHubScreen(
                     appContainer = appContainer,
-                    onBack = { navController.popBackStack() },
+                    onBack = { navController.safePopBackStack() },
                     onOpenMockCall = { peerName, callType, callState ->
                         navController.navigate(Screen.DevMockCall.createRoute(peerName, callType, callState))
                     },
@@ -218,9 +222,15 @@ fun PokieNavGraph(
                     initialCallType = callType,
                     initialCallState = callState,
                     webRtcManager = appContainer.webRtcManager,
-                    onBack = { navController.popBackStack() }
+                    onBack = { navController.safePopBackStack() }
                 )
             }
         }
+    }
+}
+
+fun NavHostController.safePopBackStack() {
+    if (currentBackStackEntry?.lifecycle?.currentState == Lifecycle.State.RESUMED) {
+        popBackStack()
     }
 }

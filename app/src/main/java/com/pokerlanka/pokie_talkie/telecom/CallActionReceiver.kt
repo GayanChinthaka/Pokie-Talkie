@@ -32,26 +32,7 @@ class CallActionReceiver : BroadcastReceiver() {
 
         when (action) {
             ACTION_DECLINE_CALL -> {
-                container.telecomCallManager.dismissCallNotification()
-                container.webRtcManager.endCall()
-                PokieConnectionService.activeConnection?.markDisconnected()
-                container.fcmSignalingClient.sendHangup(peerId, callId)
-                CoroutineScope(Dispatchers.IO).launch {
-                    container.callRepository.endCallAndLog()
-                }
-            }
-
-            ACTION_ANSWER_CALL -> {
-                container.telecomCallManager.dismissCallNotification()
-                val answerIntent = Intent(context, IncomingCallActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                    putExtra(TelecomCallManager.EXTRA_PEER_ID, peerId)
-                    putExtra(TelecomCallManager.EXTRA_PEER_NAME, peerName)
-                    putExtra(TelecomCallManager.EXTRA_CALL_ID, callId)
-                    putExtra(TelecomCallManager.EXTRA_CALL_TYPE, callType)
-                    putExtra("auto_answer", true)
-                }
-                context.startActivity(answerIntent)
+                container.callController.endCall(EndReason.REJECTED, notifyPeer = true, expectedCallId = callId)
             }
         }
     }

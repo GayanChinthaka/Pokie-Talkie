@@ -62,6 +62,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import androidx.activity.compose.BackHandler
+import android.app.Activity
+import androidx.compose.ui.platform.LocalContext
 import com.pokerlanka.pokie_talkie.data.model.CallState
 import com.pokerlanka.pokie_talkie.data.model.CallType
 import com.pokerlanka.pokie_talkie.ui.components.AvatarView
@@ -70,7 +73,6 @@ import com.pokerlanka.pokie_talkie.ui.components.SwipeableIncomingCallControl
 import com.pokerlanka.pokie_talkie.ui.theme.PokieCallGreen
 import com.pokerlanka.pokie_talkie.ui.theme.PokieCallRed
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkBg
-import com.pokerlanka.pokie_talkie.ui.theme.PokieEmerald
 import com.pokerlanka.pokie_talkie.ui.theme.PokieLanActiveBadge
 import com.pokerlanka.pokie_talkie.ui.theme.PokieTextPrimary
 import com.pokerlanka.pokie_talkie.ui.theme.PokieTextSecondary
@@ -83,6 +85,7 @@ fun CallScreen(
     onCallEnded: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val callSession by viewModel.currentCall.collectAsState()
     val localVideoTrack by viewModel.localVideoTrack.collectAsState()
     val remoteVideoTrack by viewModel.remoteVideoTrack.collectAsState()
@@ -92,6 +95,15 @@ fun CallScreen(
     val isSpeakerOn by viewModel.isSpeakerOn.collectAsState()
     val videoUpgradeRequester by viewModel.videoUpgradeRequest.collectAsState()
     var snackbarMessage by remember { mutableStateOf<String?>(null) }
+
+    val isCallActive = callSession?.state in listOf(
+        CallState.RINGING_INCOMING,
+        CallState.RINGING_OUTGOING,
+        CallState.CONNECTED
+    )
+    BackHandler(enabled = isCallActive) {
+        (context as? Activity)?.moveTaskToBack(true)
+    }
 
     LaunchedEffect(Unit) {
         viewModel.uiMessage.collect { msg ->
@@ -105,7 +117,8 @@ fun CallScreen(
     LaunchedEffect(callSession?.state) {
         if (callSession == null ||
             callSession?.state == CallState.DISCONNECTED ||
-            callSession?.state == CallState.REJECTED
+            callSession?.state == CallState.REJECTED ||
+            callSession?.state == CallState.MISSED
         ) {
             onCallEnded()
         }
@@ -241,12 +254,12 @@ fun CallScreen(
                             modifier = Modifier
                                 .size(160.dp)
                                 .clip(CircleShape)
-                                .background(PokieEmerald.copy(alpha = 0.15f))
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
                         )
                         AvatarView(
                             name = callSession?.peerName ?: "Family",
                             size = 120.dp,
-                            backgroundColor = PokieEmerald
+                            backgroundColor = MaterialTheme.colorScheme.primary
                         )
                     }
 
@@ -444,13 +457,13 @@ fun CallScreen(
                         modifier = Modifier
                             .size(56.dp)
                             .clip(CircleShape)
-                            .background(PokieEmerald.copy(alpha = 0.2f)),
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.Videocam,
                             contentDescription = null,
-                            tint = PokieEmerald,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(32.dp)
                         )
                     }

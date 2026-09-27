@@ -32,7 +32,6 @@ import androidx.compose.ui.unit.sp
 import com.pokerlanka.pokie_talkie.data.model.Sticker
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkCard
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkSurface
-import com.pokerlanka.pokie_talkie.ui.theme.PokieEmerald
 import com.pokerlanka.pokie_talkie.ui.theme.PokieTextPrimary
 import com.pokerlanka.pokie_talkie.ui.theme.PokieTextSecondary
 
@@ -82,7 +81,7 @@ fun StickerPicker(
         TabRow(
             selectedTabIndex = selectedCategoryIndex,
             containerColor = PokieDarkSurface,
-            contentColor = PokieEmerald
+            contentColor = MaterialTheme.colorScheme.primary
         ) {
             categories.forEachIndexed { index, title ->
                 Tab(
@@ -91,7 +90,7 @@ fun StickerPicker(
                     text = {
                         Text(
                             text = title,
-                            color = if (selectedCategoryIndex == index) PokieEmerald else PokieTextSecondary,
+                            color = if (selectedCategoryIndex == index) MaterialTheme.colorScheme.primary else PokieTextSecondary,
                             style = MaterialTheme.typography.labelSmall
                         )
                     }

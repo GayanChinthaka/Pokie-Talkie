@@ -21,11 +21,20 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import androidx.room.withTransaction
+import com.pokerlanka.pokie_talkie.data.local.PokieDatabase
 import java.util.UUID
 
 class ChatRepository(
     private val messageDao: MessageDao,
-    private val contactDao: ContactDao
+    private val contactDao: ContactDao,
+    private val database: PokieDatabase? = null
 ) {
     fun getMessages(peerId: String, myId: String): Flow<List<Message>> {
         return messageDao.getMessagesForConversation(peerId, myId).map { entities ->
@@ -68,16 +77,27 @@ class ChatRepository(
 
     suspend fun updateMessagesStatus(messageIds: List<String>, status: MessageStatus) {
         if (messageIds.isNotEmpty()) {
-            messageDao.updateMessagesStatus(messageIds, status)
+            messageIds.chunked(900).forEach { chunk ->
+                messageDao.updateMessagesStatus(chunk, status)
+            }
         }
     }
 
     suspend fun markIncomingAsRead(peerId: String, myId: String): List<String> {
-        val unreadIds = messageDao.getUnreadIncomingMessageIds(peerId, myId)
-        if (unreadIds.isNotEmpty()) {
-            messageDao.markIncomingMessagesStatus(peerId, myId, MessageStatus.READ)
+        val execute: suspend () -> List<String> = {
+            val unreadIds = messageDao.getUnreadIncomingMessageIds(peerId, myId)
+            if (unreadIds.isNotEmpty()) {
+                unreadIds.chunked(900).forEach { chunk ->
+                    messageDao.updateMessagesStatus(chunk, MessageStatus.READ)
+                }
+            }
+            unreadIds
         }
-        return unreadIds
+        return if (database != null) {
+            database.withTransaction { execute() }
+        } else {
+            execute()
+        }
     }
 
     fun getUnreadCounts(myId: String): Flow<Map<String, Int>> {
@@ -116,7 +136,8 @@ class ChatRepository(
 }
 
 class ContactRepository(
-    private val contactDao: ContactDao
+    private val contactDao: ContactDao,
+    private val database: PokieDatabase? = null
 ) {
     fun getContacts(): Flow<List<Contact>> {
         return contactDao.getAllContacts().map { entities ->
@@ -132,8 +153,12 @@ class ContactRepository(
         return contactDao.getContactById(id)?.toDomain()
     }
 
-    suspend fun updateLanStatus(id: String, isOnline: Boolean, ip: String = "", port: Int = 52220) {
+    suspend fun updateLanStatus(id: String, isOnline: Boolean, ip: String, port: Int = 52220) {
         contactDao.updateLanStatus(id, isOnline, ip, port, System.currentTimeMillis())
+    }
+
+    suspend fun updateLanOnlineStatusOnly(id: String, isOnline: Boolean) {
+        contactDao.updateLanOnlineOnly(id, isOnline, System.currentTimeMillis())
     }
 
     suspend fun resetAllLanStatus() {
@@ -141,7 +166,36 @@ class ContactRepository(
     }
 
     suspend fun saveOrUpdateContact(contact: Contact) {
-        contactDao.insertOrUpdateContact(contact.toEntity())
+        val existing = contactDao.getContactById(contact.id)
+        if (existing != null) {
+            val merged = existing.copy(
+                name = contact.name.ifBlank { existing.name },
+                ipAddress = contact.ipAddress.ifBlank { existing.ipAddress },
+                port = if (contact.port > 0) contact.port else existing.port,
+                bluetoothAddress = contact.bluetoothAddress.ifBlank { existing.bluetoothAddress },
+                isOnlineLan = contact.isOnlineLan,
+                lastSeenTimestamp = contact.lastSeenTimestamp,
+                fcmToken = contact.fcmToken.ifBlank { existing.fcmToken },
+                avatarColor = if (contact.avatarColor != 0L) contact.avatarColor else existing.avatarColor
+            )
+            contactDao.insertOrUpdateContact(merged)
+        } else {
+            contactDao.insertOrUpdateContact(contact.toEntity())
+        }
+    }
+
+    suspend fun mergeContactAndMigrateMessages(oldId: String, newContact: Contact) {
+        if (database != null) {
+            database.withTransaction {
+                database.messageDao().migrateSenderId(oldId, newContact.id)
+                database.messageDao().migrateReceiverId(oldId, newContact.id)
+                saveOrUpdateContact(newContact)
+                deleteContact(oldId)
+            }
+        } else {
+            saveOrUpdateContact(newContact)
+            deleteContact(oldId)
+        }
     }
 
     suspend fun updateContactName(id: String, newName: String) {
@@ -190,7 +244,8 @@ class ContactRepository(
 }
 
 class CallRepository(
-    private val callLogDao: CallLogDao
+    private val callLogDao: CallLogDao,
+    private val scope: CoroutineScope? = null
 ) {
     private val _currentCall = MutableStateFlow<CallSession?>(null)
     val currentCall: StateFlow<CallSession?> = _currentCall.asStateFlow()
@@ -200,6 +255,8 @@ class CallRepository(
 
     private val _uiMessage = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val uiMessage: SharedFlow<String> = _uiMessage.asSharedFlow()
+
+    private var durationTimerJob: Job? = null
 
     fun setCallSession(session: CallSession?) {
         _currentCall.value = session
@@ -215,6 +272,29 @@ class CallRepository(
 
     fun updateCallState(state: CallState) {
         _currentCall.value = _currentCall.value?.copy(state = state)
+        if (state == CallState.CONNECTED) {
+            startDurationTimer()
+        } else if (state == CallState.DISCONNECTED || state == CallState.REJECTED || state == CallState.MISSED) {
+            stopDurationTimer()
+        }
+    }
+
+    private fun startDurationTimer() {
+        if (durationTimerJob?.isActive == true) return
+        val currentScope = scope ?: return
+        durationTimerJob = currentScope.launch(Dispatchers.Default) {
+            var seconds = _currentCall.value?.durationSeconds ?: 0L
+            while (isActive) {
+                delay(1000)
+                seconds++
+                _currentCall.value = _currentCall.value?.copy(durationSeconds = seconds)
+            }
+        }
+    }
+
+    private fun stopDurationTimer() {
+        durationTimerJob?.cancel()
+        durationTimerJob = null
     }
 
     fun updateCallType(callType: CallType) {
@@ -229,7 +309,8 @@ class CallRepository(
         _currentCall.value = _currentCall.value?.copy(durationSeconds = duration)
     }
 
-    suspend fun endCallAndLog() {
+    suspend fun endCallAndLog(finalState: CallState = CallState.DISCONNECTED) {
+        stopDurationTimer()
         val session = _currentCall.value ?: return
         val wasConnected = session.state == CallState.CONNECTED
         val log = CallLogEntity(
@@ -244,10 +325,12 @@ class CallRepository(
         )
         callLogDao.insertCallLog(log)
         _videoUpgradeRequest.value = null
-        _currentCall.value = session.copy(state = CallState.DISCONNECTED)
+        val latest = _currentCall.value ?: session
+        _currentCall.value = latest.copy(state = finalState)
     }
 
     fun clearSession() {
+        stopDurationTimer()
         _videoUpgradeRequest.value = null
         _currentCall.value = null
     }

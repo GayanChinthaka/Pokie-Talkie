@@ -6,6 +6,8 @@ import com.pokerlanka.pokie_talkie.data.model.CallType
 import com.pokerlanka.pokie_talkie.data.model.IceCandidateModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -48,6 +50,7 @@ class WebRtcManager(
     private var localVideoTrack: VideoTrack? = null
     private var videoCapturer: CameraVideoCapturer? = null
     private var surfaceTextureHelper: SurfaceTextureHelper? = null
+    private var iceDisconnectTimerJob: Job? = null
 
     val audioDeviceManager = WebRtcAudioDeviceManager(context)
 
@@ -102,6 +105,7 @@ class WebRtcManager(
             .createPeerConnectionFactory()
     }
 
+    @Synchronized
     fun startLocalMedia(callType: CallType) {
         val factory = peerConnectionFactory ?: return
 
@@ -127,6 +131,8 @@ class WebRtcManager(
 
         if (callType == CallType.VIDEO && localVideoTrack == null) {
             try {
+                surfaceTextureHelper?.dispose()
+                surfaceTextureHelper = null
                 surfaceTextureHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.eglBaseContext)
                 val capturer = createCameraCapturer()
                 if (capturer != null) {
@@ -157,6 +163,7 @@ class WebRtcManager(
         _isSpeakerOn.value = audioDeviceManager.isSpeakerphoneOn()
     }
 
+    @Synchronized
     fun createPeerConnection() {
         if (peerConnection != null) {
             Log.d(tag, "PeerConnection already exists, skipping recreate")
@@ -188,12 +195,28 @@ class WebRtcManager(
                     PeerConnection.IceConnectionState.CONNECTED,
                     PeerConnection.IceConnectionState.COMPLETED -> {
                         _isCallConnected.value = true
+                        iceDisconnectTimerJob?.cancel()
+                        iceDisconnectTimerJob = null
                     }
-                    PeerConnection.IceConnectionState.DISCONNECTED,
-                    PeerConnection.IceConnectionState.FAILED,
-                    PeerConnection.IceConnectionState.CLOSED -> {
+                    PeerConnection.IceConnectionState.DISCONNECTED -> {
+                        iceDisconnectTimerJob?.cancel()
+                        iceDisconnectTimerJob = scope.launch(Dispatchers.Default) {
+                            delay(10_000)
+                            if (peerConnection?.iceConnectionState() == PeerConnection.IceConnectionState.DISCONNECTED) {
+                                Log.w(tag, "ICE disconnected for >10s, treating as FAILED")
+                                _isCallConnected.value = false
+                                onCallDisconnected?.invoke()
+                            }
+                        }
+                    }
+                    PeerConnection.IceConnectionState.FAILED -> {
+                        iceDisconnectTimerJob?.cancel()
+                        iceDisconnectTimerJob = null
                         _isCallConnected.value = false
                         onCallDisconnected?.invoke()
+                    }
+                    PeerConnection.IceConnectionState.CLOSED -> {
+                        // Ignore connection closed
                     }
                     else -> {}
                 }
@@ -252,15 +275,6 @@ class WebRtcManager(
         }
         localVideoTrack?.let {
             peerConnection?.addTrack(it, listOf("ARDAMS"))
-        }
-
-        // Drain any pending ICE candidates received before peerConnection creation
-        synchronized(pendingIceCandidates) {
-            for (pending in pendingIceCandidates) {
-                val candidate = IceCandidate(pending.sdpMid, pending.sdpMLineIndex, pending.candidate)
-                peerConnection?.addIceCandidate(candidate)
-            }
-            pendingIceCandidates.clear()
         }
     }
 
@@ -328,7 +342,12 @@ class WebRtcManager(
         }, constraints)
     }
 
-    fun setRemoteDescription(sdpString: String, type: SessionDescription.Type) {
+    @Synchronized
+    fun setRemoteDescription(
+        sdpString: String,
+        type: SessionDescription.Type,
+        autoAnswer: Boolean = (type == SessionDescription.Type.OFFER)
+    ) {
         val sessionDescription = SessionDescription(type, sdpString)
         peerConnection?.setRemoteDescription(object : SdpObserver {
             override fun onCreateSuccess(p0: SessionDescription?) {}
@@ -343,7 +362,7 @@ class WebRtcManager(
                     }
                     pendingIceCandidates.clear()
                 }
-                if (type == SessionDescription.Type.OFFER) {
+                if (autoAnswer && type == SessionDescription.Type.OFFER) {
                     createAnswer()
                 }
             }
@@ -371,6 +390,7 @@ class WebRtcManager(
         }
     }
 
+    @Synchronized
     fun addRemoteIceCandidate(model: IceCandidateModel) {
         val pc = peerConnection
         if (pc != null && pc.remoteDescription != null) {
@@ -385,14 +405,22 @@ class WebRtcManager(
         }
     }
 
+    @Synchronized
     fun toggleAudioMute(): Boolean {
         val newMute = !_isAudioMuted.value
-        _isAudioMuted.value = newMute
-        localAudioTrack?.setEnabled(!newMute)
-        audioDeviceManager.setMicrophoneMute(newMute)
+        setAudioMuted(newMute)
         return newMute
     }
 
+    @Synchronized
+    fun setAudioMuted(muted: Boolean) {
+        _isAudioMuted.value = muted
+        localAudioTrack?.setEnabled(!muted)
+        audioDeviceManager.setMicrophoneMute(muted)
+        Log.d(tag, "Audio mute explicitly set to: $muted")
+    }
+
+    @Synchronized
     fun toggleVideo(): Boolean {
         val newVideo = !_isVideoEnabled.value
         _isVideoEnabled.value = newVideo
@@ -405,6 +433,7 @@ class WebRtcManager(
         Log.i(tag, "Remote video enabled set to: $enabled")
     }
 
+    @Synchronized
     fun upgradeToVideo() {
         Log.i(tag, "Upgrading active call to VIDEO")
         val factory = peerConnectionFactory ?: return
@@ -412,6 +441,8 @@ class WebRtcManager(
         // 1. Start local camera capturer and video track if not already running
         if (localVideoTrack == null) {
             try {
+                surfaceTextureHelper?.dispose()
+                surfaceTextureHelper = null
                 surfaceTextureHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.eglBaseContext)
                 val capturer = createCameraCapturer()
                 if (capturer != null) {
@@ -552,41 +583,91 @@ class WebRtcManager(
         return null
     }
 
+    @Synchronized
     fun endCall() {
         try {
-            audioDeviceManager.stopCallAudio()
+            iceDisconnectTimerJob?.cancel()
+            iceDisconnectTimerJob = null
 
-            videoCapturer?.stopCapture()
-            videoCapturer?.dispose()
+            try {
+                audioDeviceManager.stopCallAudio()
+            } catch (e: Exception) {
+                Log.w(tag, "stopCallAudio error: ${e.message}")
+            }
+
+            val vc = videoCapturer
             videoCapturer = null
+            try {
+                vc?.stopCapture()
+                vc?.dispose()
+            } catch (e: Exception) {
+                Log.w(tag, "videoCapturer dispose error: ${e.message}")
+            }
 
-            surfaceTextureHelper?.dispose()
+            val sth = surfaceTextureHelper
             surfaceTextureHelper = null
+            try {
+                sth?.dispose()
+            } catch (e: Exception) {
+                Log.w(tag, "surfaceTextureHelper dispose error: ${e.message}")
+            }
 
-            localVideoTrack?.dispose()
+            val lvt = localVideoTrack
             localVideoTrack = null
             _localVideoTrackFlow.value = null
+            try {
+                lvt?.dispose()
+            } catch (e: Exception) {
+                Log.w(tag, "localVideoTrack dispose error: ${e.message}")
+            }
 
-            localAudioTrack?.dispose()
+            val lat = localAudioTrack
             localAudioTrack = null
+            try {
+                lat?.dispose()
+            } catch (e: Exception) {
+                Log.w(tag, "localAudioTrack dispose error: ${e.message}")
+            }
 
-            localVideoSource?.dispose()
+            val lvs = localVideoSource
             localVideoSource = null
+            try {
+                lvs?.dispose()
+            } catch (e: Exception) {
+                Log.w(tag, "localVideoSource dispose error: ${e.message}")
+            }
 
-            localAudioSource?.dispose()
+            val las = localAudioSource
             localAudioSource = null
+            try {
+                las?.dispose()
+            } catch (e: Exception) {
+                Log.w(tag, "localAudioSource dispose error: ${e.message}")
+            }
 
-            peerConnection?.close()
-            peerConnection?.dispose()
+            val pc = peerConnection
             peerConnection = null
+            try {
+                pc?.close()
+                pc?.dispose()
+            } catch (e: Exception) {
+                Log.w(tag, "peerConnection dispose error: ${e.message}")
+            }
 
+            pendingRemoteOfferSdp = null
+            synchronized(pendingIceCandidates) {
+                pendingIceCandidates.clear()
+            }
+            _isSpeakerOn.value = false
             _remoteVideoTrackFlow.value = null
             _isCallConnected.value = false
             _isAudioMuted.value = false
             _isVideoEnabled.value = true
             _isRemoteVideoEnabled.value = true
+            Log.d(tag, "WebRTC endCall teardown completed successfully")
         } catch (e: Exception) {
             Log.e(tag, "Error closing WebRTC session: ${e.message}")
         }
     }
 }
+

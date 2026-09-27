@@ -34,16 +34,31 @@ class ConnectivityMonitor(
 ) {
     private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
     private val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+    private val availableWifiNetworks = mutableSetOf<Network>()
+
+    var onWifiLost: (() -> Unit)? = null
+    var onBluetoothStateOn: (() -> Unit)? = null
+
     private val _activeTransport = MutableStateFlow(determineTransport())
     val activeTransport: StateFlow<ActiveTransportMode> = _activeTransport.asStateFlow()
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
+            synchronized(availableWifiNetworks) {
+                availableWifiNetworks.add(network)
+            }
             updateTransport()
         }
 
         override fun onLost(network: Network) {
+            val becameEmpty = synchronized(availableWifiNetworks) {
+                availableWifiNetworks.remove(network)
+                availableWifiNetworks.isEmpty()
+            }
             updateTransport()
+            if (becameEmpty) {
+                onWifiLost?.invoke()
+            }
         }
 
         override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
@@ -53,6 +68,13 @@ class ConnectivityMonitor(
 
     private val broadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
+            val action = intent?.action
+            if (action == BluetoothAdapter.ACTION_STATE_CHANGED) {
+                val state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
+                if (state == BluetoothAdapter.STATE_ON) {
+                    onBluetoothStateOn?.invoke()
+                }
+            }
             updateTransport()
         }
     }
@@ -61,6 +83,7 @@ class ConnectivityMonitor(
         try {
             val request = NetworkRequest.Builder()
                 .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                 .build()
             connectivityManager?.registerNetworkCallback(request, networkCallback)
         } catch (e: Exception) {
@@ -107,8 +130,14 @@ class ConnectivityMonitor(
             return ActiveTransportMode.WIFI_DIRECT
         }
 
-        val isWifiEnabled = try { wifiManager?.isWifiEnabled == true } catch (e: Exception) { false }
+        val hasWifiNetwork = synchronized(availableWifiNetworks) {
+            availableWifiNetworks.isNotEmpty()
+        }
+        if (hasWifiNetwork) {
+            return ActiveTransportMode.WIFI
+        }
 
+        val isWifiEnabled = try { wifiManager?.isWifiEnabled == true } catch (e: Exception) { false }
         if (isWifiEnabled) {
             val activeNet = connectivityManager?.activeNetwork
             if (activeNet != null) {

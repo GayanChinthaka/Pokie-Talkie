@@ -48,6 +48,12 @@ interface MessageDao {
 
     @Query("DELETE FROM messages WHERE (senderId = :peerId AND receiverId = :myId) OR (senderId = :myId AND receiverId = :peerId)")
     suspend fun clearConversation(peerId: String, myId: String)
+
+    @Query("UPDATE messages SET senderId = :newId WHERE senderId = :oldId")
+    suspend fun migrateSenderId(oldId: String, newId: String)
+
+    @Query("UPDATE messages SET receiverId = :newId WHERE receiverId = :oldId")
+    suspend fun migrateReceiverId(oldId: String, newId: String)
 }
 
 data class SenderUnreadCount(
@@ -74,6 +80,9 @@ interface ContactDao {
 
     @Query("UPDATE contacts SET isOnlineLan = :isOnline, ipAddress = :ip, port = :port, lastSeenTimestamp = :timestamp WHERE id = :id")
     suspend fun updateLanStatus(id: String, isOnline: Boolean, ip: String, port: Int, timestamp: Long)
+
+    @Query("UPDATE contacts SET isOnlineLan = :isOnline, lastSeenTimestamp = :timestamp WHERE id = :id")
+    suspend fun updateLanOnlineOnly(id: String, isOnline: Boolean, timestamp: Long)
 
     @Query("UPDATE contacts SET isOnlineLan = 0")
     suspend fun resetAllLanStatus()

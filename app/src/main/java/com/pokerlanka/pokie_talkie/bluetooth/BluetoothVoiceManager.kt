@@ -60,6 +60,13 @@ class BluetoothVoiceManager(
 
     var isMuted: Boolean = false
 
+    var isBluetoothCallActiveProvider: (() -> Boolean)? = null
+
+    val isRunning: Boolean
+        get() = serverJob?.isActive == true
+
+    private var currentSessionToken: Long = 0L
+
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
 
     fun hasPermission(): Boolean {
@@ -86,18 +93,30 @@ class BluetoothVoiceManager(
                 serverSocket = bluetoothAdapter.listenUsingRfcommWithServiceRecord("PokieVoice", POKIE_VOICE_UUID)
                 Log.i(tag, "Bluetooth Voice Server listening on UUID $POKIE_VOICE_UUID")
 
-                while (isActive) {
+                while (isActive && serverSocket != null) {
                     val socket = try {
                         serverSocket?.accept()
                     } catch (e: Exception) {
                         null
                     } ?: break
 
+                    if (isBluetoothCallActiveProvider?.invoke() != true) {
+                        Log.w(tag, "Rejected incoming Bluetooth voice connection from ${socket.remoteDevice.address}: call not active/connected")
+                        try { socket.close() } catch (ignored: Exception) {}
+                        continue
+                    }
+
                     Log.i(tag, "Accepted incoming Bluetooth voice connection from ${socket.remoteDevice.address}")
                     startDuplexAudio(socket)
                 }
             } catch (e: Exception) {
                 Log.w(tag, "Error in Bluetooth voice server: ${e.message}")
+            } finally {
+                try {
+                    serverSocket?.close()
+                } catch (ignored: Exception) {}
+                serverSocket = null
+                serverJob = null
             }
         }
     }
@@ -130,17 +149,23 @@ class BluetoothVoiceManager(
         stopDuplexAudio()
         activeSocket = socket
         isCallActive = true
+        val token = System.currentTimeMillis()
+        currentSessionToken = token
 
         val minRecordBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_IN, ENCODING)
         val recordBufSize = maxOf(minRecordBuf, BUFFER_SIZE * 4)
 
-        audioRecord = AudioRecord(
-            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-            SAMPLE_RATE,
-            CHANNEL_IN,
-            ENCODING,
-            recordBufSize
-        )
+        try {
+            audioRecord = AudioRecord(
+                MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+                SAMPLE_RATE,
+                CHANNEL_IN,
+                ENCODING,
+                recordBufSize
+            )
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to instantiate AudioRecord: ${e.message}")
+        }
 
         val minTrackBuf = AudioTrack.getMinBufferSize(SAMPLE_RATE, CHANNEL_OUT, ENCODING)
         val trackBufSize = maxOf(minTrackBuf, BUFFER_SIZE * 4)
@@ -156,16 +181,24 @@ class BluetoothVoiceManager(
             .setEncoding(ENCODING)
             .build()
 
-        audioTrack = AudioTrack(
-            attributes,
-            format,
-            trackBufSize,
-            AudioTrack.MODE_STREAM,
-            AudioManager.AUDIO_SESSION_ID_GENERATE
-        )
+        try {
+            audioTrack = AudioTrack(
+                attributes,
+                format,
+                trackBufSize,
+                AudioTrack.MODE_STREAM,
+                AudioManager.AUDIO_SESSION_ID_GENERATE
+            )
+            audioTrack?.play()
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to start AudioTrack: ${e.message}")
+        }
 
-        audioTrack?.play()
-        audioRecord?.startRecording()
+        try {
+            audioRecord?.startRecording()
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to start AudioRecord recording: ${e.message}")
+        }
 
         // Recording & Sending Loop
         recordJob = scope.launch(Dispatchers.IO) {
@@ -176,8 +209,12 @@ class BluetoothVoiceManager(
             }
 
             val buffer = ByteArray(BUFFER_SIZE)
-            while (isActive && isCallActive) {
-                val readBytes = audioRecord?.read(buffer, 0, BUFFER_SIZE) ?: -1
+            while (isActive && isCallActive && currentSessionToken == token) {
+                val readBytes = try {
+                    audioRecord?.read(buffer, 0, BUFFER_SIZE) ?: -1
+                } catch (e: Exception) {
+                    -1
+                }
                 if (readBytes > 0) {
                     if (isMuted) {
                         buffer.fill(0)
@@ -202,7 +239,7 @@ class BluetoothVoiceManager(
             }
 
             val buffer = ByteArray(BUFFER_SIZE)
-            while (isActive && isCallActive) {
+            while (isActive && isCallActive && currentSessionToken == token) {
                 val readBytes = try {
                     inputStream.read(buffer)
                 } catch (e: Exception) {
@@ -215,11 +252,15 @@ class BluetoothVoiceManager(
                     break
                 }
             }
-            stopDuplexAudio()
+            stopDuplexAudio(token)
         }
     }
 
-    fun stopDuplexAudio() {
+    fun stopDuplexAudio(sessionToken: Long? = null) {
+        if (sessionToken != null && sessionToken != currentSessionToken) {
+            Log.d(tag, "Ignoring stopDuplexAudio for outdated session token $sessionToken (current: $currentSessionToken)")
+            return
+        }
         isCallActive = false
         recordJob?.cancel()
         recordJob = null

@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
-    <exclude domain="database" path="pokie_database" />
+    <exclude domain="database" path="pokie_talkie.db" />
+    <exclude domain="database" path="pokie_talkie.db-wal" />
+    <exclude domain="database" path="pokie_talkie.db-shm" />
+    <exclude domain="sharedpref" path="pokie_user_prefs.xml" />
 </full-backup-content>

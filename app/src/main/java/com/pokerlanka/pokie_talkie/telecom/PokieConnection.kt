@@ -19,7 +19,7 @@ class PokieConnection(
     val callType: CallType,
     private val callRepository: CallRepository,
     private val webRtcManager: WebRtcManager,
-    private val onEndCallRequested: (String, String) -> Unit
+    private val callController: CallController
 ) : Connection() {
 
     private val tag = "PokieConnection"
@@ -36,31 +36,29 @@ class PokieConnection(
         Log.i(tag, "Telecom onAnswer called for call $callId")
         setActive()
         callRepository.updateCallState(CallState.CONNECTED)
+        com.pokerlanka.pokie_talkie.service.PokieLocalService.notifyCallStarted(context, isVideo = (callType == CallType.VIDEO))
         webRtcManager.answerIncomingCall(callType)
     }
 
     override fun onReject() {
         Log.i(tag, "Telecom onReject called for call $callId")
-        setDisconnected(DisconnectCause(DisconnectCause.REJECTED))
-        callRepository.updateCallState(CallState.REJECTED)
-        onEndCallRequested(peerId, callId)
-        destroy()
+        callController.endCall(EndReason.REJECTED, notifyPeer = true, expectedCallId = callId)
     }
 
     override fun onDisconnect() {
         Log.i(tag, "Telecom onDisconnect called for call $callId")
-        setDisconnected(DisconnectCause(DisconnectCause.LOCAL))
-        callRepository.updateCallState(CallState.DISCONNECTED)
-        onEndCallRequested(peerId, callId)
-        destroy()
+        callController.endCall(EndReason.LOCAL_HANGUP, notifyPeer = true, expectedCallId = callId)
+    }
+
+    override fun onAbort() {
+        Log.i(tag, "Telecom onAbort called for call $callId")
+        callController.endCall(EndReason.LOCAL_HANGUP, notifyPeer = true, expectedCallId = callId)
     }
 
     override fun onCallAudioStateChanged(state: CallAudioState?) {
         Log.d(tag, "Telecom audio state changed: isMuted=${state?.isMuted}, route=${state?.route}")
         state?.let {
-            if (it.isMuted != webRtcManager.isAudioMuted.value) {
-                webRtcManager.toggleAudioMute()
-            }
+            webRtcManager.setAudioMuted(it.isMuted)
         }
     }
 

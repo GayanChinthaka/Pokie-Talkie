@@ -9,8 +9,10 @@ import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.RingtoneManager
 import android.os.Build
+import android.net.Uri
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.pokerlanka.pokie_talkie.BuildConfig
 import com.pokerlanka.pokie_talkie.MainActivity
 import com.pokerlanka.pokie_talkie.R
 import com.pokerlanka.pokie_talkie.data.local.PokieDatabase
@@ -41,19 +43,26 @@ import com.pokerlanka.pokie_talkie.bluetooth.BluetoothTransportManager
 import com.pokerlanka.pokie_talkie.bluetooth.BluetoothVoiceManager
 import com.pokerlanka.pokie_talkie.wifip2p.WifiDirectManager
 import com.pokerlanka.pokie_talkie.telecom.RingtoneVibrationManager
+import com.pokerlanka.pokie_talkie.telecom.CallController
+import com.pokerlanka.pokie_talkie.telecom.EndReason
 import org.webrtc.SessionDescription
 
 import com.pokerlanka.pokie_talkie.data.local.UserPreferencesManager
 import com.pokerlanka.pokie_talkie.data.model.Contact
+import kotlinx.coroutines.CoroutineExceptionHandler
 
 class AppContainer(val context: Context) {
     private val tag = "AppContainer"
 
     companion object {
-        const val CHANNEL_MESSAGES_ID = "pokie_chat_messages"
+        const val CHANNEL_MESSAGES_ID = "pokie_chat_messages_v2"
     }
 
-    val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val applicationScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Default + CoroutineExceptionHandler { _, throwable ->
+            Log.e(tag, "Uncaught exception in applicationScope", throwable)
+        }
+    )
 
     // User Preferences & Device Identity
     val userPreferencesManager by lazy { UserPreferencesManager(context) }
@@ -62,9 +71,19 @@ class AppContainer(val context: Context) {
 
     // Database & Repositories
     val database by lazy { PokieDatabase.getInstance(context) }
-    val chatRepository by lazy { ChatRepository(database.messageDao(), database.contactDao()) }
-    val contactRepository by lazy { ContactRepository(database.contactDao()) }
-    val callRepository by lazy { CallRepository(database.callLogDao()) }
+    val chatRepository by lazy { ChatRepository(database.messageDao(), database.contactDao(), database) }
+    val contactRepository by lazy { ContactRepository(database.contactDao(), database) }
+    val callRepository by lazy { CallRepository(database.callLogDao(), applicationScope) }
+    val callController by lazy {
+        CallController(
+            callRepository = callRepository,
+            webRtcManager = webRtcManager,
+            bluetoothVoiceManager = bluetoothVoiceManager,
+            telecomCallManager = telecomCallManager,
+            fcmSignalingClient = fcmSignalingClient,
+            scope = applicationScope
+        )
+    }
 
     // Networking, Bluetooth & Proximity Transport
     val lanSocketServer by lazy { LanSocketServer(applicationScope) }
@@ -73,13 +92,15 @@ class AppContainer(val context: Context) {
     val bluetoothVoiceManager by lazy { BluetoothVoiceManager(context, applicationScope, bluetoothTransportManager.bluetoothAdapter) }
     val wifiDirectManager by lazy {
         WifiDirectManager(context) { peerIp, isGroupOwner ->
-            Log.i(tag, "Wi-Fi Direct peer connected with IP: $peerIp, isGroupOwner: $isGroupOwner")
-            applicationScope.launch {
-                addManualContact(
-                    name = "Nearby Peer ($peerIp)",
-                    ipAddress = peerIp,
-                    port = 52220
-                )
+            if (!isGroupOwner) {
+                Log.i(tag, "Wi-Fi Direct peer connected with IP: $peerIp")
+                applicationScope.launch {
+                    addManualContact(
+                        name = "Nearby Peer ($peerIp)",
+                        ipAddress = peerIp,
+                        port = 52220
+                    )
+                }
             }
         }
     }
@@ -96,7 +117,7 @@ class AppContainer(val context: Context) {
             userPreferencesManager = userPreferencesManager,
             scope = applicationScope,
             myUserId = currentUserId,
-            myUserName = currentUserName
+            userNameProvider = { currentUserName }
         )
     }
 
@@ -164,9 +185,23 @@ class AppContainer(val context: Context) {
         lanSocketServer.start(52220)
 
         // Initialize and start NSD / mDNS discovery with real profile info
-        val savedFcmToken = userPreferencesManager.getFcmToken()
-        lanDiscoveryManager.initialize(currentUserId, currentUserName, lanSocketServer.serverPort, savedFcmToken)
-        lanDiscoveryManager.startDiscoveryAndRegistration()
+        // Item 3.4: resetAllLanStatus() before starting discovery
+        applicationScope.launch(Dispatchers.IO) {
+            contactRepository.resetAllLanStatus()
+            val savedFcmToken = userPreferencesManager.getFcmToken()
+            lanDiscoveryManager.initialize(currentUserId, currentUserName, lanSocketServer.serverPort, savedFcmToken)
+            lanDiscoveryManager.startDiscoveryAndRegistration()
+        }
+
+        // Item 3.7: link lanDiscoveryManager for re-resolving failed LAN sends
+        fcmSignalingClient.lanDiscoveryManager = lanDiscoveryManager
+
+        // Item 3.2: reject Bluetooth voice sockets if call is not active
+        bluetoothVoiceManager.isBluetoothCallActiveProvider = {
+            val currentCall = callRepository.currentCall.value
+            currentCall != null && currentCall.state == CallState.CONNECTED && currentCall.isBluetoothVoice
+        }
+
         // Setup WebRTC Callbacks
         setupWebRtcCallbacks()
 
@@ -185,12 +220,20 @@ class AppContainer(val context: Context) {
             Log.w(tag, "Wi-Fi Direct init deferred: ${e.message}")
         }
 
-        // Start Connectivity Monitor
+        // Start Connectivity Monitor with callbacks for BT restore and Wi-Fi loss
+        connectivityMonitor.onBluetoothStateOn = {
+            ensureListenersActive()
+        }
+        connectivityMonitor.onWifiLost = {
+            applicationScope.launch(Dispatchers.IO) {
+                contactRepository.resetAllLanStatus()
+            }
+        }
         connectivityMonitor.start()
 
         // Wire Bluetooth Call Outgoing Trigger
         telecomCallManager.onBluetoothCallInitiated = { recipientId, recipientName, callId ->
-            fcmSignalingClient.sendBluetoothCallOffer(recipientId, recipientName, callId)
+            fcmSignalingClient.sendBluetoothCallOffer(recipientId, userPreferencesManager.getUserName(), callId)
         }
 
         fcmSignalingClient.onCallFallbackToBluetooth = { _ ->
@@ -205,6 +248,49 @@ class AppContainer(val context: Context) {
         // Listen for direct LAN & Bluetooth incoming payloads
         listenForLanPayloads()
         listenForBluetoothPayloads()
+
+        // Item 4.3: Auto-check for updates on app start
+        checkAutoUpdates()
+    }
+
+    private fun checkAutoUpdates() {
+        if (!userPreferencesManager.isAutoCheckUpdates()) return
+        val lastCheck = userPreferencesManager.getLastUpdateCheckTime()
+        val now = System.currentTimeMillis()
+        if (now - lastCheck < 24 * 60 * 60 * 1000L) return
+
+        applicationScope.launch(Dispatchers.IO) {
+            userPreferencesManager.setLastUpdateCheckTime(now)
+            val result = com.pokerlanka.pokie_talkie.utils.Updater.getLatestRelease()
+            result.onSuccess { release ->
+                val currentVersion = BuildConfig.VERSION_NAME
+                if (com.pokerlanka.pokie_talkie.utils.Updater.isUpdateAvailable(release.tagName, currentVersion)) {
+                    showUpdateAvailableNotification(release)
+                }
+            }
+        }
+    }
+
+    private fun showUpdateAvailableNotification(release: com.pokerlanka.pokie_talkie.utils.ReleaseInfo) {
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(release.downloadUrl ?: release.htmlUrl)).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            301,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(context, CHANNEL_MESSAGES_ID)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("Pokie-Talkie Update Available")
+            .setContentText("Version ${release.tagName} is available. Tap to download.")
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .build()
+        notificationManager.notify(3001, notification)
     }
 
     private fun setupWebRtcCallbacks() {
@@ -240,9 +326,7 @@ class AppContainer(val context: Context) {
         }
 
         webRtcManager.onCallDisconnected = {
-            applicationScope.launch {
-                callRepository.endCallAndLog()
-            }
+            callController.endCall(EndReason.CONNECTION_FAILED, notifyPeer = true)
         }
     }
 
@@ -263,11 +347,27 @@ class AppContainer(val context: Context) {
     }
 
     private fun handleIncomingSignalingPayload(payload: SignalingPayload, source: String) {
-        Log.d(tag, "Handling incoming $source payload [${payload.type}] from ${payload.senderName}")
-        when (payload.type) {
+        try {
+            Log.d(tag, "Handling incoming $source payload [${payload.type}] from ${payload.senderName}")
+            when (payload.type) {
             SignalingType.OFFER -> {
                 val callType = payload.callType ?: CallType.VOICE
-                val callId = payload.callId ?: System.currentTimeMillis().toString()
+                val incomingCallId = payload.callId ?: System.currentTimeMillis().toString()
+                val currentCall = callRepository.currentCall.value
+
+                if (currentCall != null && currentCall.state in listOf(CallState.RINGING_INCOMING, CallState.RINGING_OUTGOING, CallState.CONNECTED)) {
+                    if (currentCall.callId != incomingCallId) {
+                        Log.w(tag, "Busy: active call ${currentCall.callId} in progress, rejecting offer $incomingCallId from ${payload.senderId}")
+                        if (incomingCallId.isNotBlank()) {
+                            fcmSignalingClient.sendHangup(payload.senderId, incomingCallId)
+                        }
+                        return
+                    } else {
+                        Log.d(tag, "Ignoring duplicate OFFER for callId $incomingCallId")
+                        return
+                    }
+                }
+
                 val isBtCall = payload.isBluetoothVoice || 
                     payload.sdp.isNullOrBlank() || 
                     source == "Bluetooth" || 
@@ -284,16 +384,22 @@ class AppContainer(val context: Context) {
                     callerId = payload.senderId,
                     callerName = payload.senderName,
                     callType = callType,
-                    callId = callId,
+                    callId = incomingCallId,
                     isBluetoothVoice = isBtCall
                 )
             }
 
             SignalingType.ANSWER -> {
                 val currentCall = callRepository.currentCall.value
-                val isBtCall = payload.isBluetoothVoice || currentCall?.isBluetoothVoice == true
+                val incomingCallId = payload.callId ?: ""
+                if (currentCall == null || currentCall.callId != incomingCallId || currentCall.state != CallState.RINGING_OUTGOING) {
+                    Log.w(tag, "Ignoring ANSWER: callId mismatch or not in RINGING_OUTGOING (current=${currentCall?.callId}, incoming=$incomingCallId, state=${currentCall?.state})")
+                    return
+                }
+                val isBtCall = payload.isBluetoothVoice || currentCall.isBluetoothVoice
                 // Stop ringback tone on the sender side when remote answers
                 ringtoneVibrationManager.stopAll()
+                callController.onCallConnected()
                 if (isBtCall) {
                     Log.i(tag, "Received Bluetooth call ANSWER from ${payload.senderName}")
                     PokieConnectionService.activeConnection?.markConnected()
@@ -321,18 +427,25 @@ class AppContainer(val context: Context) {
             }
 
             SignalingType.ICE_CANDIDATE -> {
+                val currentCall = callRepository.currentCall.value
+                val incomingCallId = payload.callId ?: ""
+                if (currentCall == null || currentCall.callId != incomingCallId) {
+                    Log.d(tag, "Ignoring ICE_CANDIDATE for non-matching callId: $incomingCallId (current=${currentCall?.callId})")
+                    return
+                }
                 payload.iceCandidate?.let { candidate ->
                     webRtcManager.addRemoteIceCandidate(candidate)
                 }
             }
 
             SignalingType.HANGUP -> {
-                webRtcManager.endCall()
-                bluetoothVoiceManager.stopDuplexAudio()
-                PokieConnectionService.activeConnection?.markDisconnected()
-                telecomCallManager.dismissCallNotification()
-                applicationScope.launch {
-                    callRepository.endCallAndLog()
+                val currentCall = callRepository.currentCall.value
+                val incomingCallId = payload.callId ?: ""
+                if (currentCall != null && currentCall.callId == incomingCallId) {
+                    Log.i(tag, "Received matching HANGUP for call $incomingCallId from ${payload.senderName}")
+                    callController.endCall(EndReason.REMOTE_HANGUP, notifyPeer = false, expectedCallId = incomingCallId)
+                } else {
+                    Log.d(tag, "Ignoring HANGUP for non-matching callId: $incomingCallId (current=${currentCall?.callId})")
                 }
             }
 
@@ -343,21 +456,27 @@ class AppContainer(val context: Context) {
                 val isChatCurrentlyOpen = activeChatPeerId == payload.senderId
                 val initialStatus = if (isChatCurrentlyOpen) MessageStatus.READ else MessageStatus.DELIVERED
 
-                applicationScope.launch {
+                applicationScope.launch(Dispatchers.IO) {
                     val existingContact = contactRepository.getContact(payload.senderId)
                     val remoteBtAddress = bluetoothTransportManager.getPeerAddress(payload.senderId) ?: ""
                     val isLan = (source == "LAN")
+                    val contactIp = if (isLan && !payload.sourceIp.isNullOrBlank()) payload.sourceIp!! else ""
 
                     if (existingContact == null) {
                         val byBt = if (remoteBtAddress.isNotBlank()) contactRepository.getContact(remoteBtAddress) else null
-                        if (byBt != null) {
-                            contactRepository.deleteContact(byBt.id)
-                            contactRepository.saveOrUpdateContact(
-                                byBt.copy(
+                        val byLan = if (contactIp.isNotBlank()) contactRepository.getContact("lan_${contactIp.replace(".", "_")}") else null
+                        val oldContact = byBt ?: byLan
+
+                        if (oldContact != null) {
+                            contactRepository.mergeContactAndMigrateMessages(
+                                oldId = oldContact.id,
+                                newContact = oldContact.copy(
                                     id = payload.senderId,
-                                    name = payload.senderName.ifBlank { byBt.name },
-                                    bluetoothAddress = remoteBtAddress,
-                                    isOnlineLan = isLan,
+                                    name = payload.senderName.ifBlank { oldContact.name },
+                                    bluetoothAddress = remoteBtAddress.ifBlank { oldContact.bluetoothAddress },
+                                    isOnlineLan = isLan || oldContact.isOnlineLan,
+                                    ipAddress = if (contactIp.isNotBlank()) contactIp else oldContact.ipAddress,
+                                    port = 52220,
                                     lastSeenTimestamp = System.currentTimeMillis()
                                 )
                             )
@@ -368,14 +487,37 @@ class AppContainer(val context: Context) {
                                     name = payload.senderName.ifBlank { "Family Member" },
                                     bluetoothAddress = remoteBtAddress,
                                     isOnlineLan = isLan,
+                                    ipAddress = contactIp,
+                                    port = 52220,
                                     lastSeenTimestamp = System.currentTimeMillis()
                                 )
                             )
                         }
                     } else {
-                        contactRepository.updateLanStatus(payload.senderId, isLan)
-                        if (remoteBtAddress.isNotBlank() && existingContact.bluetoothAddress.isBlank()) {
-                            contactRepository.updateBluetoothAddress(payload.senderId, remoteBtAddress)
+                        val byBt = if (remoteBtAddress.isNotBlank() && remoteBtAddress != payload.senderId) contactRepository.getContact(remoteBtAddress) else null
+                        val byLan = if (contactIp.isNotBlank() && "lan_${contactIp.replace(".", "_")}" != payload.senderId) contactRepository.getContact("lan_${contactIp.replace(".", "_")}") else null
+                        val oldContact = byBt ?: byLan
+                        if (oldContact != null) {
+                            contactRepository.mergeContactAndMigrateMessages(
+                                oldId = oldContact.id,
+                                newContact = existingContact.copy(
+                                    name = payload.senderName.ifBlank { existingContact.name },
+                                    bluetoothAddress = remoteBtAddress.ifBlank { existingContact.bluetoothAddress },
+                                    isOnlineLan = isLan || existingContact.isOnlineLan,
+                                    ipAddress = if (contactIp.isNotBlank()) contactIp else existingContact.ipAddress,
+                                    port = 52220,
+                                    lastSeenTimestamp = System.currentTimeMillis()
+                                )
+                            )
+                        } else {
+                            if (isLan && !payload.sourceIp.isNullOrBlank()) {
+                                contactRepository.updateLanStatus(payload.senderId, true, payload.sourceIp!!, 52220)
+                            } else {
+                                contactRepository.updateLanOnlineStatusOnly(payload.senderId, isLan)
+                            }
+                            if (remoteBtAddress.isNotBlank() && existingContact.bluetoothAddress.isBlank()) {
+                                contactRepository.updateBluetoothAddress(payload.senderId, remoteBtAddress)
+                            }
                         }
                     }
 
@@ -436,43 +578,51 @@ class AppContainer(val context: Context) {
 
             SignalingType.SWITCH_TO_VIDEO_REQUEST -> {
                 val currentCall = callRepository.currentCall.value
-                if (currentCall != null && currentCall.state == CallState.CONNECTED) {
+                val incomingCallId = payload.callId ?: ""
+                if (currentCall != null && currentCall.callId == incomingCallId && currentCall.state == CallState.CONNECTED) {
                     Log.i(tag, "Received SWITCH_TO_VIDEO_REQUEST from ${payload.senderName}")
                     callRepository.setVideoUpgradeRequest(payload.senderName.ifBlank { "Caller" })
                 }
             }
 
             SignalingType.SWITCH_TO_VIDEO_ACCEPT -> {
-                Log.i(tag, "Received SWITCH_TO_VIDEO_ACCEPT from ${payload.senderName}")
-                callRepository.updateCallType(CallType.VIDEO)
-                webRtcManager.upgradeToVideo()
                 val currentCall = callRepository.currentCall.value
-                if (currentCall != null) {
-                    webRtcManager.createRenegotiationOffer { sdp ->
-                        fcmSignalingClient.sendRenegotiationOffer(payload.senderId, currentCall.callId, sdp)
-                    }
+                val incomingCallId = payload.callId ?: ""
+                if (currentCall != null && currentCall.callId == incomingCallId && currentCall.state == CallState.CONNECTED) {
+                    Log.i(tag, "Received SWITCH_TO_VIDEO_ACCEPT from ${payload.senderName}")
+                    callRepository.updateCallType(CallType.VIDEO)
+                    webRtcManager.upgradeToVideo()
                 }
             }
 
             SignalingType.SWITCH_TO_VIDEO_DECLINE -> {
-                Log.i(tag, "Received SWITCH_TO_VIDEO_DECLINE from ${payload.senderName}")
-                callRepository.emitMessage("${payload.senderName.ifBlank { "Peer" }} declined switch to video")
+                val currentCall = callRepository.currentCall.value
+                val incomingCallId = payload.callId ?: ""
+                if (currentCall != null && currentCall.callId == incomingCallId) {
+                    Log.i(tag, "Received SWITCH_TO_VIDEO_DECLINE from ${payload.senderName}")
+                    callRepository.emitMessage("${payload.senderName.ifBlank { "Peer" }} declined switch to video")
+                }
             }
 
             SignalingType.CAMERA_STATE -> {
-                val isCameraOn = payload.isCameraOn ?: true
-                Log.i(tag, "Received CAMERA_STATE from ${payload.senderName}: isCameraOn=$isCameraOn")
-                webRtcManager.setRemoteVideoEnabled(isCameraOn)
+                val currentCall = callRepository.currentCall.value
+                val incomingCallId = payload.callId ?: ""
+                if (currentCall != null && currentCall.callId == incomingCallId) {
+                    val isCameraOn = payload.isCameraOn ?: true
+                    Log.i(tag, "Received CAMERA_STATE from ${payload.senderName}: isCameraOn=$isCameraOn")
+                    webRtcManager.setRemoteVideoEnabled(isCameraOn)
+                }
             }
 
             SignalingType.RENEGOTIATION_OFFER -> {
                 val sdp = payload.sdp ?: return
                 val currentCall = callRepository.currentCall.value
-                Log.i(tag, "Received RENEGOTIATION_OFFER from ${payload.senderName}")
-                callRepository.updateCallType(CallType.VIDEO)
-                webRtcManager.upgradeToVideo()
-                webRtcManager.setRemoteDescription(sdp, SessionDescription.Type.OFFER)
-                if (currentCall != null) {
+                val incomingCallId = payload.callId ?: ""
+                if (currentCall != null && currentCall.callId == incomingCallId && currentCall.state == CallState.CONNECTED) {
+                    Log.i(tag, "Received RENEGOTIATION_OFFER from ${payload.senderName}")
+                    callRepository.updateCallType(CallType.VIDEO)
+                    webRtcManager.upgradeToVideo()
+                    webRtcManager.setRemoteDescription(sdp, SessionDescription.Type.OFFER, autoAnswer = false)
                     webRtcManager.createRenegotiationAnswer { answerSdp ->
                         fcmSignalingClient.sendRenegotiationAnswer(payload.senderId, currentCall.callId, answerSdp)
                     }
@@ -481,11 +631,18 @@ class AppContainer(val context: Context) {
 
             SignalingType.RENEGOTIATION_ANSWER -> {
                 val sdp = payload.sdp ?: return
-                Log.i(tag, "Received RENEGOTIATION_ANSWER from ${payload.senderName}")
-                webRtcManager.setRemoteDescription(sdp, SessionDescription.Type.ANSWER)
+                val currentCall = callRepository.currentCall.value
+                val incomingCallId = payload.callId ?: ""
+                if (currentCall != null && currentCall.callId == incomingCallId && currentCall.state == CallState.CONNECTED) {
+                    Log.i(tag, "Received RENEGOTIATION_ANSWER from ${payload.senderName}")
+                    webRtcManager.setRemoteDescription(sdp, SessionDescription.Type.ANSWER)
+                }
             }
 
             SignalingType.PING -> {}
+            }
+        } catch (e: Throwable) {
+            Log.e(tag, "Error handling incoming $source payload: ${e.message}", e)
         }
     }
 
@@ -534,12 +691,10 @@ class AppContainer(val context: Context) {
 
         val pendingIntent = PendingIntent.getActivity(
             context,
-            201,
+            senderId.hashCode(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-
-        val defaultNotifSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
 
         val notification = NotificationCompat.Builder(context, CHANNEL_MESSAGES_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
@@ -547,53 +702,45 @@ class AppContainer(val context: Context) {
             .setContentText(messageText)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
-            .setSound(defaultNotifSound)
-            .setVibrate(longArrayOf(0, 200))
             .setContentIntent(pendingIntent)
             .build()
 
         notificationManager.notify(senderId.hashCode(), notification)
+        ringtoneVibrationManager.playMessageNotification()
     }
 
     private fun createNotificationChannels() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-            // Incoming Calls Channel (High Priority with Sound & Vibration)
-            val callSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-            val audioAttributes = AudioAttributes.Builder()
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
-                .build()
+            try {
+                notificationManager.deleteNotificationChannel("pokie_incoming_calls")
+                notificationManager.deleteNotificationChannel("pokie_chat_messages")
+            } catch (e: Exception) {
+                Log.w(tag, "Failed to delete old notification channels: ${e.message}")
+            }
 
+            // Incoming Calls Channel (Silent channel - ringtoneVibrationManager plays ringtone & vibration per prefs)
             val callsChannel = NotificationChannel(
                 TelecomCallManager.CHANNEL_CALLS_ID,
                 context.getString(R.string.channel_calls_name),
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = context.getString(R.string.channel_calls_desc)
-                setSound(callSound, audioAttributes)
-                enableVibration(true)
-                vibrationPattern = longArrayOf(0, 1000, 500, 1000)
+                setSound(null, null)
+                enableVibration(false)
                 lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
             }
 
-            // Chat Messages Channel
-            val defaultNotifSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-            val notifAudioAttributes = AudioAttributes.Builder()
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
-                .build()
-
+            // Chat Messages Channel (Silent channel - ringtoneVibrationManager plays message sound & vibration per prefs)
             val messagesChannel = NotificationChannel(
                 CHANNEL_MESSAGES_ID,
                 context.getString(R.string.channel_messages_name),
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = context.getString(R.string.channel_messages_desc)
-                setSound(defaultNotifSound, notifAudioAttributes)
-                enableVibration(true)
-                vibrationPattern = longArrayOf(0, 200)
+                setSound(null, null)
+                enableVibration(false)
             }
 
             notificationManager.createNotificationChannels(listOf(callsChannel, messagesChannel))

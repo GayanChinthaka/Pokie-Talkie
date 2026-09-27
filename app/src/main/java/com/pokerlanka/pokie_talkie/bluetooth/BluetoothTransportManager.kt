@@ -14,6 +14,8 @@ import androidx.core.content.ContextCompat
 import com.google.gson.Gson
 import com.pokerlanka.pokie_talkie.data.model.Contact
 import com.pokerlanka.pokie_talkie.data.model.SignalingPayload
+import com.pokerlanka.pokie_talkie.data.model.SignalingType
+import com.pokerlanka.pokie_talkie.data.model.isValid
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -124,6 +126,12 @@ class BluetoothTransportManager(
                 Log.e(tag, "Security exception starting Bluetooth server: ${e.message}")
             } catch (e: Exception) {
                 Log.e(tag, "Error starting Bluetooth server: ${e.message}")
+            } finally {
+                try {
+                    serverSocket?.close()
+                } catch (ignored: Exception) {}
+                serverSocket = null
+                serverJob = null
             }
         }
     }
@@ -137,7 +145,7 @@ class BluetoothTransportManager(
 
             if (!line.isNullOrBlank()) {
                 val payload = gson.fromJson(line, SignalingPayload::class.java)
-                if (payload != null) {
+                if (payload != null && payload.isValid()) {
                     Log.i(tag, "Received Bluetooth payload [${payload.type}] from ${payload.senderName} (${remoteDevice.address})")
                     // Record sender's Bluetooth MAC address for future responses
                     if (payload.senderId.isNotBlank()) {
@@ -155,6 +163,8 @@ class BluetoothTransportManager(
                     }
 
                     receivedPayload = payload
+                } else {
+                    Log.w(tag, "Dropped invalid/malformed Bluetooth payload from ${remoteDevice.address}")
                 }
             }
         } catch (e: Exception) {
@@ -175,35 +185,12 @@ class BluetoothTransportManager(
     }
 
     /**
-     * Resolves a known or paired Bluetooth MAC address for a contact.
+     * Resolves a known or stored Bluetooth MAC address for a contact.
+     * Does not guess addresses from paired devices.
      */
     fun getKnownOrPairedAddress(contactId: String, contactName: String, storedAddress: String?): String? {
         if (!storedAddress.isNullOrBlank()) return storedAddress
-        peerAddressMap[contactId]?.let { return it }
-
-        val paired = getPairedDevices()
-        val match = paired.find { device ->
-            val dName = try { device.name ?: "" } catch (e: Exception) { "" }
-            val dAddr = device.address ?: ""
-            dAddr.equals(contactId, ignoreCase = true) ||
-            dName.equals(contactName, ignoreCase = true) ||
-            (contactName.isNotBlank() && dName.contains(contactName, ignoreCase = true)) ||
-            (dName.isNotBlank() && contactName.contains(dName, ignoreCase = true))
-        }
-
-        if (match != null) {
-            val addr = match.address
-            peerAddressMap[contactId] = addr
-            return addr
-        }
-
-        if (paired.size == 1) {
-            val addr = paired.first().address
-            peerAddressMap[contactId] = addr
-            return addr
-        }
-
-        return null
+        return peerAddressMap[contactId]
     }
 
     /**
@@ -219,63 +206,12 @@ class BluetoothTransportManager(
             var address = peerAddressMap[targetId]
             val contact = contactRepository?.getContact(targetId)
 
-            // 1. Check stored bluetooth address in contact record
+            // Check stored bluetooth address in contact record
             if (address.isNullOrBlank()) {
                 val storedAddr = contact?.bluetoothAddress
                 if (!storedAddr.isNullOrBlank()) {
                     address = storedAddr
                     peerAddressMap[targetId] = storedAddr
-                }
-            }
-
-            // 2. If not found in memory, scan paired devices for matching name or ID
-            if (address.isNullOrBlank()) {
-                val paired = getPairedDevices()
-                val targetName = contact?.name?.trim() ?: targetId.trim()
-
-                val match = paired.find { device ->
-                    val dName = try { device.name ?: "" } catch (e: Exception) { "" }
-                    val dAddr = device.address ?: ""
-                    dAddr.equals(targetId, ignoreCase = true) ||
-                    dName.equals(targetName, ignoreCase = true) ||
-                    (targetName.isNotBlank() && dName.contains(targetName, ignoreCase = true)) ||
-                    (dName.isNotBlank() && targetName.contains(dName, ignoreCase = true))
-                }
-
-                if (match != null) {
-                    val matchedAddress = match.address
-                    address = matchedAddress
-                    peerAddressMap[targetId] = matchedAddress
-                    val cId = contact?.id
-                    if (cId != null && matchedAddress != null) {
-                        contactRepository?.updateBluetoothAddress(cId, matchedAddress)
-                    }
-                    Log.i(tag, "Matched target '$targetName' ($targetId) to paired Bluetooth device: ${match.name} ($matchedAddress)")
-                } else if (paired.isNotEmpty()) {
-                    // Aggressive fallback: find a phone-class device among paired
-                    val phoneDevice = paired.find { device ->
-                        try {
-                            device.bluetoothClass?.majorDeviceClass == BluetoothClass.Device.Major.PHONE
-                        } catch (e: Exception) {
-                            false
-                        }
-                    }
-                    if (phoneDevice != null) {
-                        address = phoneDevice.address
-                        peerAddressMap[targetId] = address
-                        if (contact != null) {
-                            contactRepository?.updateBluetoothAddress(contact.id, address)
-                        }
-                        Log.i(tag, "Selected paired phone device as Bluetooth fallback: ${phoneDevice.name} ($address)")
-                    } else if (paired.size == 1) {
-                        // Only one paired device — use it as the only possible target
-                        address = paired.first().address
-                        peerAddressMap[targetId] = address
-                        if (contact != null) {
-                            contactRepository?.updateBluetoothAddress(contact.id, address)
-                        }
-                        Log.i(tag, "Single paired device fallback: ${paired.first().name} ($address)")
-                    }
                 }
             }
 
@@ -295,9 +231,16 @@ class BluetoothTransportManager(
     suspend fun sendPayloadToAddress(address: String, payload: SignalingPayload): Boolean {
         return sendMutex.withLock {
             withContext(Dispatchers.IO) {
+                val isCritical = payload.type in listOf(
+                    SignalingType.OFFER,
+                    SignalingType.ANSWER,
+                    SignalingType.HANGUP,
+                    SignalingType.CHAT_MESSAGE
+                )
+                val maxAttempts = if (isCritical) 2 else 1
                 var attempt = 0
                 var success = false
-                while (attempt < 3 && !success) {
+                while (attempt < maxAttempts && !success) {
                     attempt++
                     var socket: BluetoothSocket? = null
                     try {
@@ -343,7 +286,7 @@ class BluetoothTransportManager(
                         break
                     } catch (e: Exception) {
                         Log.w(tag, "Attempt $attempt failed to send Bluetooth payload [${payload.type}] to $address: ${e.message}")
-                        if (attempt < 3) {
+                        if (attempt < maxAttempts) {
                             kotlinx.coroutines.delay(150L * attempt)
                         }
                     } finally {
@@ -430,6 +373,7 @@ class BluetoothTransportManager(
 
     fun stopServer() {
         serverJob?.cancel()
+        serverJob = null
         try {
             serverSocket?.close()
         } catch (ignored: Exception) {}

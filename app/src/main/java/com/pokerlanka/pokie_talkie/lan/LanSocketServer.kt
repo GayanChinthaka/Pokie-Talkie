@@ -20,6 +20,9 @@ import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 
+import com.pokerlanka.pokie_talkie.data.model.isValid
+import java.util.concurrent.atomic.AtomicInteger
+
 class LanSocketServer(
     private val scope: CoroutineScope,
     private val gson: Gson = Gson()
@@ -29,6 +32,10 @@ class LanSocketServer(
     private var serverJob: Job? = null
     var serverPort: Int = 52220
         private set
+
+    private val activeConnections = AtomicInteger(0)
+    private val maxConcurrentConnections = 16
+    private val maxPayloadChars = 1024 * 1024 // 1 MB cap
 
     private val _incomingPayloads = MutableSharedFlow<SignalingPayload>(extraBufferCapacity = 64)
     val incomingPayloads: SharedFlow<SignalingPayload> = _incomingPayloads.asSharedFlow()
@@ -49,32 +56,74 @@ class LanSocketServer(
 
                 while (isActive && serverSocket?.isClosed == false) {
                     val clientSocket = serverSocket?.accept() ?: break
+                    if (activeConnections.get() >= maxConcurrentConnections) {
+                        Log.w(tag, "Max concurrent connections reached ($maxConcurrentConnections), dropping connection")
+                        try { clientSocket.close() } catch (ignored: Exception) {}
+                        continue
+                    }
                     launch(Dispatchers.IO) {
-                        handleClientConnection(clientSocket)
+                        activeConnections.incrementAndGet()
+                        try {
+                            handleClientConnection(clientSocket)
+                        } finally {
+                            activeConnections.decrementAndGet()
+                        }
                     }
                 }
             } catch (e: Exception) {
                 if (isActive) {
                     Log.e(tag, "ServerSocket error: ${e.message}")
                 }
+            } finally {
+                try {
+                    serverSocket?.close()
+                } catch (ignored: Exception) {}
+                serverSocket = null
+                serverJob = null
+            }
+        }
+    }
+
+    private fun readLineBounded(reader: BufferedReader, maxChars: Int): String? {
+        val sb = java.lang.StringBuilder()
+        while (true) {
+            val c = reader.read()
+            if (c == -1) {
+                return if (sb.isEmpty()) null else sb.toString()
+            }
+            val ch = c.toChar()
+            if (ch == '\n') {
+                var str = sb.toString()
+                if (str.endsWith("\r")) {
+                    str = str.substring(0, str.length - 1)
+                }
+                return str
+            }
+            sb.append(ch)
+            if (sb.length > maxChars) {
+                throw java.io.IOException("Payload line exceeded maximum size of $maxChars characters")
             }
         }
     }
 
     private suspend fun handleClientConnection(socket: Socket) {
+        val remoteIp = socket.inetAddress?.hostAddress
         try {
             socket.soTimeout = 30000
             val reader = BufferedReader(InputStreamReader(socket.getInputStream(), Charsets.UTF_8))
-            val line = reader.readLine()
+            val line = readLineBounded(reader, maxPayloadChars)
             if (!line.isNullOrBlank()) {
                 val payload = gson.fromJson(line, SignalingPayload::class.java)
-                if (payload != null) {
-                    Log.d(tag, "Received direct LAN payload type: ${payload.type} from ${payload.senderName}")
+                if (payload != null && payload.isValid()) {
+                    payload.sourceIp = remoteIp
+                    Log.d(tag, "Received direct LAN payload type: ${payload.type} from ${payload.senderName} (IP: $remoteIp)")
                     _incomingPayloads.emit(payload)
+                } else {
+                    Log.w(tag, "Dropped invalid/malformed LAN payload from $remoteIp")
                 }
             }
         } catch (e: Exception) {
-            Log.e(tag, "Error handling client connection: ${e.message}")
+            Log.e(tag, "Error handling client connection from $remoteIp: ${e.message}")
         } finally {
             try {
                 socket.close()

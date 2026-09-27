@@ -8,13 +8,19 @@ import android.os.Build
 import android.util.Log
 import com.pokerlanka.pokie_talkie.data.model.Contact
 import com.pokerlanka.pokie_talkie.data.repository.ContactRepository
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.net.InetAddress
+import java.util.concurrent.ConcurrentHashMap
 
 class LanDiscoveryManager(
     private val context: Context,
@@ -36,6 +42,16 @@ class LanDiscoveryManager(
     private var myFcmToken: String = ""
     private var localPort: Int = 52220
 
+    private val knownServices = ConcurrentHashMap<String, NsdServiceInfo>()
+    private val serviceNameToUserId = ConcurrentHashMap<String, String>()
+    private val userIdToServiceName = ConcurrentHashMap<String, String>()
+    private val resolveChannel = Channel<NsdServiceInfo>(Channel.UNLIMITED)
+    private var resolveWorkerJob: Job? = null
+    private var unregisterDeferred: CompletableDeferred<Unit>? = null
+
+    private var registrationAttempts = 0
+    private var discoveryAttempts = 0
+
     private val _discoveredPeers = MutableStateFlow<Map<String, Contact>>(emptyMap())
     val discoveredPeers: StateFlow<Map<String, Contact>> = _discoveredPeers.asStateFlow()
 
@@ -44,6 +60,17 @@ class LanDiscoveryManager(
         this.myUserName = userName
         this.localPort = port
         this.myFcmToken = fcmToken
+        startResolveWorker()
+    }
+
+    private fun startResolveWorker() {
+        if (resolveWorkerJob == null || resolveWorkerJob?.isActive == false) {
+            resolveWorkerJob = scope.launch(Dispatchers.IO) {
+                for (service in resolveChannel) {
+                    resolveServiceWithRetry(service)
+                }
+            }
+        }
     }
 
     fun startDiscoveryAndRegistration() {
@@ -54,8 +81,16 @@ class LanDiscoveryManager(
 
     fun updateProfileName(newName: String) {
         this.myUserName = newName
-        unregisterService()
-        registerService()
+        scope.launch(Dispatchers.IO) {
+            val def = CompletableDeferred<Unit>()
+            unregisterDeferred = def
+            unregisterService()
+            withTimeoutOrNull(3000) {
+                def.await()
+            }
+            unregisterDeferred = null
+            registerService()
+        }
     }
 
     fun updateFcmToken(newToken: String) {
@@ -68,9 +103,22 @@ class LanDiscoveryManager(
         }
     }
 
+    fun reResolvePeer(userId: String) {
+        val serviceName = userIdToServiceName[userId]
+        if (serviceName != null) {
+            val info = knownServices[serviceName]
+            if (info != null) {
+                Log.i(tag, "Re-resolving peer $userId with known service $serviceName")
+                resolveChannel.trySend(info)
+            }
+        }
+    }
+
     fun stop() {
         stopDiscovery()
         unregisterService()
+        resolveWorkerJob?.cancel()
+        resolveWorkerJob = null
         releaseMulticastLock()
     }
 
@@ -130,16 +178,27 @@ class LanDiscoveryManager(
 
         registrationListener = object : NsdManager.RegistrationListener {
             override fun onServiceRegistered(info: NsdServiceInfo) {
+                registrationAttempts = 0
                 registeredServiceName = info.serviceName
                 Log.i(tag, "Local service registered: ${info.serviceName} on port $localPort")
             }
 
             override fun onRegistrationFailed(info: NsdServiceInfo, errorCode: Int) {
                 Log.e(tag, "Service registration failed: Error code $errorCode")
+                registrationListener = null
+                if (registrationAttempts < 5) {
+                    registrationAttempts++
+                    scope.launch(Dispatchers.IO) {
+                        delay(1500L * registrationAttempts)
+                        registerService()
+                    }
+                }
             }
 
             override fun onServiceUnregistered(info: NsdServiceInfo) {
                 Log.i(tag, "Service unregistered: ${info.serviceName}")
+                unregisterDeferred?.complete(Unit)
+                unregisterDeferred = null
             }
 
             override fun onUnregistrationFailed(info: NsdServiceInfo, errorCode: Int) {
@@ -170,6 +229,7 @@ class LanDiscoveryManager(
 
         discoveryListener = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(regType: String) {
+                discoveryAttempts = 0
                 Log.d(tag, "NSD Service discovery started for $regType")
             }
 
@@ -180,7 +240,8 @@ class LanDiscoveryManager(
                         Log.d(tag, "Ignoring own service advertisement")
                         return
                     }
-                    resolveService(service)
+                    knownServices[service.serviceName] = service
+                    resolveChannel.trySend(service)
                 }
             }
 
@@ -196,6 +257,13 @@ class LanDiscoveryManager(
             override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
                 Log.e(tag, "Start discovery failed with error: $errorCode")
                 discoveryListener = null
+                if (discoveryAttempts < 5) {
+                    discoveryAttempts++
+                    scope.launch(Dispatchers.IO) {
+                        delay(1500L * discoveryAttempts)
+                        startDiscovery()
+                    }
+                }
             }
 
             override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {
@@ -221,80 +289,107 @@ class LanDiscoveryManager(
         }
     }
 
-    private fun resolveService(serviceInfo: NsdServiceInfo) {
-        val resolveListener = object : NsdManager.ResolveListener {
-            override fun onResolveFailed(service: NsdServiceInfo, errorCode: Int) {
-                Log.e(tag, "Resolve failed for ${service.serviceName}: Error $errorCode")
-            }
+    private suspend fun resolveServiceWithRetry(serviceInfo: NsdServiceInfo) {
+        var attempt = 0
+        var resolved = false
+        while (attempt < 3 && !resolved) {
+            attempt++
+            val deferred = CompletableDeferred<Boolean>()
+            val resolveListener = object : NsdManager.ResolveListener {
+                override fun onResolveFailed(service: NsdServiceInfo, errorCode: Int) {
+                    Log.w(tag, "Resolve failed for ${service.serviceName} (error $errorCode, attempt $attempt)")
+                    deferred.complete(false)
+                }
 
-            override fun onServiceResolved(service: NsdServiceInfo) {
-                val host: InetAddress? = service.host
-                val port = service.port
-                val attributes = service.attributes
-
-                val peerUserId = attributes["userId"]?.let { String(it) } ?: service.serviceName.removePrefix("Pokie_")
-                val peerUserName = attributes["userName"]?.let { String(it) } ?: service.serviceName
-                val peerBtAddress = attributes["btAddress"]?.let { String(it) } ?: ""
-                val peerBtName = attributes["btName"]?.let { String(it) } ?: ""
-
-                if (peerUserId == myUserId) return
-
-                val ipAddress = host?.hostAddress ?: return
-
-                Log.i(tag, "Resolved peer $peerUserName ($peerUserId) at $ipAddress:$port [btAddress: $peerBtAddress, btName: $peerBtName]")
-
-                scope.launch(Dispatchers.IO) {
-                    val existing = contactRepository.getContact(peerUserId)
-                    val btManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
-                    val pairedMatch = try {
-                        btManager?.adapter?.bondedDevices?.find { device ->
-                            val dName = try { device.name ?: "" } catch (e: Exception) { "" }
-                            dName.equals(peerUserName, ignoreCase = true) ||
-                            (peerBtName.isNotBlank() && dName.equals(peerBtName, ignoreCase = true))
-                        }
-                    } catch (e: SecurityException) {
-                        null
-                    }
-                    val resolvedBt = peerBtAddress.ifBlank { pairedMatch?.address ?: existing?.bluetoothAddress ?: "" }
-
-                    val updatedPeer = Contact(
-                        id = peerUserId,
-                        name = peerUserName,
-                        ipAddress = ipAddress,
-                        port = port,
-                        bluetoothAddress = resolvedBt,
-                        isOnlineLan = true,
-                        lastSeenTimestamp = System.currentTimeMillis()
-                    )
-
-                    val currentMap = _discoveredPeers.value.toMutableMap()
-                    currentMap[peerUserId] = updatedPeer
-                    _discoveredPeers.value = currentMap
-
-                    contactRepository.saveOrUpdateContact(updatedPeer)
-                    contactRepository.updateLanStatus(peerUserId, true, ipAddress, port)
-                    if (resolvedBt.isNotBlank()) {
-                        contactRepository.updateBluetoothAddress(peerUserId, resolvedBt)
-                    }
+                override fun onServiceResolved(service: NsdServiceInfo) {
+                    handleResolvedService(service)
+                    deferred.complete(true)
                 }
             }
-        }
 
-        try {
-            nsdManager.resolveService(serviceInfo, resolveListener)
-        } catch (e: Exception) {
-            Log.e(tag, "Error initiating resolveService: ${e.message}")
+            try {
+                nsdManager.resolveService(serviceInfo, resolveListener)
+                val success = deferred.await()
+                if (success) {
+                    resolved = true
+                } else {
+                    delay(600L * attempt)
+                }
+            } catch (e: Exception) {
+                Log.e(tag, "Error initiating resolveService: ${e.message}")
+                delay(500L)
+            }
+        }
+    }
+
+    private fun handleResolvedService(service: NsdServiceInfo) {
+        val host: InetAddress? = service.host
+        val port = service.port
+        val attributes = service.attributes
+
+        val peerUserId = attributes["userId"]?.let { String(it) } ?: service.serviceName.removePrefix("Pokie_")
+        val peerUserName = attributes["userName"]?.let { String(it) } ?: service.serviceName
+        val peerBtAddress = attributes["btAddress"]?.let { String(it) } ?: ""
+        val peerBtName = attributes["btName"]?.let { String(it) } ?: ""
+
+        if (peerUserId == myUserId) return
+
+        val ipAddress = host?.hostAddress ?: return
+
+        serviceNameToUserId[service.serviceName] = peerUserId
+        userIdToServiceName[peerUserId] = service.serviceName
+        knownServices[service.serviceName] = service
+
+        Log.i(tag, "Resolved peer $peerUserName ($peerUserId) at $ipAddress:$port [btAddress: $peerBtAddress, btName: $peerBtName]")
+
+        scope.launch(Dispatchers.IO) {
+            val existing = contactRepository.getContact(peerUserId)
+            val btManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
+            val pairedMatch = try {
+                btManager?.adapter?.bondedDevices?.find { device ->
+                    val dName = try { device.name ?: "" } catch (e: Exception) { "" }
+                    dName.equals(peerUserName, ignoreCase = true) ||
+                    (peerBtName.isNotBlank() && dName.equals(peerBtName, ignoreCase = true))
+                }
+            } catch (e: SecurityException) {
+                null
+            }
+            val resolvedBt = peerBtAddress.ifBlank { pairedMatch?.address ?: existing?.bluetoothAddress ?: "" }
+
+            val updatedPeer = Contact(
+                id = peerUserId,
+                name = peerUserName,
+                ipAddress = ipAddress,
+                port = port,
+                bluetoothAddress = resolvedBt,
+                isOnlineLan = true,
+                lastSeenTimestamp = System.currentTimeMillis()
+            )
+
+            val currentMap = _discoveredPeers.value.toMutableMap()
+            currentMap[peerUserId] = updatedPeer
+            _discoveredPeers.value = currentMap
+
+            contactRepository.saveOrUpdateContact(updatedPeer)
+            contactRepository.updateLanStatus(peerUserId, true, ipAddress, port)
+            if (resolvedBt.isNotBlank()) {
+                contactRepository.updateBluetoothAddress(peerUserId, resolvedBt)
+            }
         }
     }
 
     private fun handleServiceLost(service: NsdServiceInfo) {
-        val peerUserId = service.serviceName.removePrefix("Pokie_")
+        val peerUserId = serviceNameToUserId.remove(service.serviceName)
+            ?: service.serviceName.removePrefix("Pokie_")
+        userIdToServiceName.remove(peerUserId)
+        knownServices.remove(service.serviceName)
+
         scope.launch(Dispatchers.IO) {
             val currentMap = _discoveredPeers.value.toMutableMap()
             currentMap.remove(peerUserId)
             _discoveredPeers.value = currentMap
 
-            contactRepository.updateLanStatus(peerUserId, false)
+            contactRepository.updateLanOnlineStatusOnly(peerUserId, false)
         }
     }
 }

@@ -17,6 +17,7 @@ import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
 import android.telecom.VideoProfile
 import android.util.Log
+import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import com.pokerlanka.pokie_talkie.R
@@ -30,7 +31,7 @@ import com.pokerlanka.pokie_talkie.service.PokieLocalService
 import com.pokerlanka.pokie_talkie.webrtc.WebRtcManager
 
 class TelecomCallManager(
-    private val context: Context,
+    val context: Context,
     private val callRepository: CallRepository,
     private val webRtcManager: WebRtcManager,
     val ringtoneVibrationManager: RingtoneVibrationManager
@@ -46,7 +47,7 @@ class TelecomCallManager(
         const val EXTRA_CALL_ID = "extra_call_id"
         const val EXTRA_CALL_TYPE = "extra_call_type"
 
-        const val CHANNEL_CALLS_ID = "pokie_incoming_calls"
+        const val CHANNEL_CALLS_ID = "pokie_incoming_calls_v2"
         const val NOTIFICATION_CALL_ID = 9999
     }
 
@@ -89,7 +90,6 @@ class TelecomCallManager(
         val isScreenOffOrLocked = (keyguardManager?.isKeyguardLocked == true) || (powerManager?.isInteractive == false)
         val isForeground = com.pokerlanka.pokie_talkie.PokieApp.isAppInForeground
 
-        PokieLocalService.notifyCallStarted(context)
         ringtoneVibrationManager.startIncomingRing()
 
         if (isScreenOffOrLocked) {
@@ -177,7 +177,14 @@ class TelecomCallManager(
         callType: CallType,
         callId: String,
         isBluetoothVoice: Boolean = false
-    ) {
+    ): Boolean {
+        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED ||
+            (callType == CallType.VIDEO && ActivityCompat.checkSelfPermission(context, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)) {
+            Log.e(tag, "Cannot start outgoing call: missing RECORD_AUDIO or CAMERA permission")
+            Toast.makeText(context, "Microphone and Camera permissions are required to make calls", Toast.LENGTH_LONG).show()
+            return false
+        }
+
         Log.i(tag, "Starting outgoing call to $recipientName ($recipientId), isBt: $isBluetoothVoice")
 
         val session = CallSession(
@@ -207,11 +214,14 @@ class TelecomCallManager(
             onBluetoothCallInitiated?.invoke(recipientId, recipientName, callId)
         }
 
-        val extras = Bundle().apply {
+        val outgoingExtras = Bundle().apply {
             putString(EXTRA_PEER_ID, recipientId)
             putString(EXTRA_PEER_NAME, recipientName)
             putString(EXTRA_CALL_ID, callId)
             putString(EXTRA_CALL_TYPE, callType.name)
+        }
+        val extras = Bundle().apply {
+            putBundle(TelecomManager.EXTRA_OUTGOING_CALL_EXTRAS, outgoingExtras)
             putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, phoneAccountHandle)
             if (callType == CallType.VIDEO) {
                 putInt(TelecomManager.EXTRA_START_CALL_WITH_VIDEO_STATE, VideoProfile.STATE_BIDIRECTIONAL)
@@ -226,6 +236,7 @@ class TelecomCallManager(
         } catch (e: Exception) {
             Log.w(tag, "Optional TelecomManager placeCall skipped or failed: ${e.message}")
         }
+        return true
     }
 
     fun showIncomingCallNotification(
@@ -264,21 +275,20 @@ class TelecomCallManager(
         )
 
         // Answer Action PendingIntent
-        val answerIntent = Intent(context, CallActionReceiver::class.java).apply {
-            action = CallActionReceiver.ACTION_ANSWER_CALL
+        val answerIntent = Intent(context, IncomingCallActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(EXTRA_PEER_ID, callerId)
             putExtra(EXTRA_PEER_NAME, callerName)
             putExtra(EXTRA_CALL_TYPE, callType.name)
             putExtra(EXTRA_CALL_ID, callId)
+            putExtra("auto_answer", true)
         }
-        val answerPendingIntent = PendingIntent.getBroadcast(
+        val answerPendingIntent = PendingIntent.getActivity(
             context,
             103,
             answerIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-
-        val ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
 
         val builder = NotificationCompat.Builder(context, CHANNEL_CALLS_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
@@ -289,8 +299,6 @@ class TelecomCallManager(
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(false)
             .setOngoing(true)
-            .setSound(ringtoneUri)
-            .setVibrate(longArrayOf(0, 1000, 500, 1000))
             .setContentIntent(pendingFullscreenIntent)
             .addAction(R.drawable.ic_launcher_foreground, "Decline", declinePendingIntent)
             .addAction(R.drawable.ic_launcher_foreground, "Answer", answerPendingIntent)
@@ -300,18 +308,25 @@ class TelecomCallManager(
         builder.setFullScreenIntent(pendingFullscreenIntent, true)
 
         val notification = builder.build()
-        notification.flags = notification.flags or android.app.Notification.FLAG_INSISTENT
-
         notificationManager.notify(NOTIFICATION_CALL_ID, notification)
     }
 
-    fun dismissCallNotification() {
+    fun dismissIncomingCallUi() {
         notificationManager.cancel(NOTIFICATION_CALL_ID)
         ringtoneVibrationManager.stopAll()
+    }
+
+    fun cleanupAfterCall() {
         webRtcManager.audioDeviceManager.resetToNormal()
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
         audioManager?.mode = android.media.AudioManager.MODE_NORMAL
         audioManager?.isSpeakerphoneOn = false
         PokieLocalService.notifyCallEnded(context)
     }
+
+    fun dismissCallNotification() {
+        dismissIncomingCallUi()
+        cleanupAfterCall()
+    }
 }
+

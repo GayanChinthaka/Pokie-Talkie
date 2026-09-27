@@ -51,20 +51,20 @@ object Updater {
                 reader.close()
 
                 val json = JSONObject(response)
-                val tagName = json.optString("tag_name", "")
-                val name = json.optString("name", tagName)
-                val body = json.optString("body", "No release notes provided.")
-                val publishedAt = formatDate(json.optString("published_at", ""))
-                val htmlUrl = json.optString("html_url", "https://github.com/$GITHUB_REPO/releases")
+                val tagName = if (json.isNull("tag_name")) "" else json.optString("tag_name", "")
+                val name = if (json.isNull("name")) tagName else json.optString("name", tagName)
+                val body = if (json.isNull("body")) "No release notes provided." else json.optString("body", "No release notes provided.")
+                val publishedAt = formatDate(if (json.isNull("published_at")) "" else json.optString("published_at", ""))
+                val htmlUrl = if (json.isNull("html_url")) "https://github.com/$GITHUB_REPO/releases" else json.optString("html_url", "https://github.com/$GITHUB_REPO/releases")
 
                 var apkDownloadUrl: String? = null
                 val assets = json.optJSONArray("assets")
                 if (assets != null) {
                     for (i in 0 until assets.length()) {
                         val asset = assets.getJSONObject(i)
-                        val assetName = asset.optString("name", "")
+                        val assetName = if (asset.isNull("name")) "" else asset.optString("name", "")
                         if (assetName.endsWith(".apk", ignoreCase = true)) {
-                            apkDownloadUrl = asset.optString("browser_download_url")
+                            apkDownloadUrl = if (asset.isNull("browser_download_url")) null else asset.optString("browser_download_url")
                             break
                         }
                     }
@@ -101,8 +101,14 @@ object Updater {
             val cleanLatest = latestVersion.trim().removePrefix("v").removePrefix("V")
             val cleanCurrent = currentVersion.trim().removePrefix("v").removePrefix("V")
 
-            val latestParts = cleanLatest.split(".").mapNotNull { it.toIntOrNull() }
-            val currentParts = cleanCurrent.split(".").mapNotNull { it.toIntOrNull() }
+            val latestHasSuffix = cleanLatest.contains("-") || cleanLatest.contains("+")
+            val currentHasSuffix = cleanCurrent.contains("-") || cleanCurrent.contains("+")
+
+            val latestNumeric = cleanLatest.substringBefore("-").substringBefore("+")
+            val currentNumeric = cleanCurrent.substringBefore("-").substringBefore("+")
+
+            val latestParts = latestNumeric.split(".").mapNotNull { it.toIntOrNull() }
+            val currentParts = currentNumeric.split(".").mapNotNull { it.toIntOrNull() }
 
             val maxLen = maxOf(latestParts.size, currentParts.size)
             for (i in 0 until maxLen) {
@@ -111,6 +117,8 @@ object Updater {
                 if (l > c) return true
                 if (l < c) return false
             }
+            // When numeric parts are equal, treat the version without a pre-release suffix as newer
+            if (!latestHasSuffix && currentHasSuffix) return true
             false
         } catch (e: Exception) {
             false

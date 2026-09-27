@@ -72,7 +72,6 @@ import androidx.compose.ui.unit.sp
 import com.pokerlanka.pokie_talkie.ui.components.AvatarView
 import com.pokerlanka.pokie_talkie.ui.components.Material3SettingsGroup
 import com.pokerlanka.pokie_talkie.ui.components.Material3SettingsItem
-import com.pokerlanka.pokie_talkie.ui.theme.PokieEmerald
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

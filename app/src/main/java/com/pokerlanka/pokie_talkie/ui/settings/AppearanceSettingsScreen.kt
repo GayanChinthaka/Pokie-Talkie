@@ -59,7 +59,6 @@ import androidx.compose.ui.unit.sp
 import com.pokerlanka.pokie_talkie.data.local.AppThemeMode
 import com.pokerlanka.pokie_talkie.ui.components.Material3SettingsGroup
 import com.pokerlanka.pokie_talkie.ui.components.Material3SettingsItem
-import com.pokerlanka.pokie_talkie.ui.theme.PokieEmerald
 
 val THEME_ACCENT_PALETTES = listOf(
     Pair("Emerald Green", 0xFF00A884),

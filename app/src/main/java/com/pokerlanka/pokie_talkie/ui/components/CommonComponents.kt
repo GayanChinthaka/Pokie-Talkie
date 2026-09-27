@@ -70,7 +70,6 @@ import com.pokerlanka.pokie_talkie.ui.theme.PokieCallRed
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkBg
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkBubbleMe
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkBubblePeer
-import com.pokerlanka.pokie_talkie.ui.theme.PokieEmerald
 import com.pokerlanka.pokie_talkie.ui.theme.PokieLanActiveBadge
 import com.pokerlanka.pokie_talkie.ui.theme.PokieLightBubbleMe
 import com.pokerlanka.pokie_talkie.ui.theme.PokieLightBubblePeer
@@ -90,7 +89,7 @@ fun AvatarView(
     name: String,
     modifier: Modifier = Modifier,
     size: Dp = 48.dp,
-    backgroundColor: Color = PokieEmerald,
+    backgroundColor: Color = MaterialTheme.colorScheme.primary,
     imagePath: String? = null,
     isOnlineLan: Boolean = false
 ) {
@@ -100,11 +99,28 @@ fun AvatarView(
         .joinToString("")
         .uppercase()
 
-    val bitmap = remember(imagePath) {
+    val bitmap = remember(imagePath, size) {
         if (!imagePath.isNullOrBlank()) {
             val file = java.io.File(imagePath)
             if (file.exists()) {
-                android.graphics.BitmapFactory.decodeFile(file.absolutePath)
+                try {
+                    val boundsOptions = android.graphics.BitmapFactory.Options().apply {
+                        inJustDecodeBounds = true
+                    }
+                    android.graphics.BitmapFactory.decodeFile(file.absolutePath, boundsOptions)
+                    val targetPx = (size.value * 3).toInt().coerceAtLeast(1)
+                    var sampleSize = 1
+                    while (boundsOptions.outHeight / (sampleSize * 2) >= targetPx &&
+                           boundsOptions.outWidth / (sampleSize * 2) >= targetPx) {
+                        sampleSize *= 2
+                    }
+                    val decodeOptions = android.graphics.BitmapFactory.Options().apply {
+                        inSampleSize = sampleSize
+                    }
+                    android.graphics.BitmapFactory.decodeFile(file.absolutePath, decodeOptions)
+                } catch (e: Exception) {
+                    null
+                }
             } else null
         } else null
     }
@@ -145,7 +161,7 @@ fun AvatarView(
                     .size(size * 0.30f)
                     .align(Alignment.BottomEnd)
                     .clip(CircleShape)
-                    .background(PokieEmerald)
+                    .background(MaterialTheme.colorScheme.primary)
                     .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
             )
         }
@@ -159,13 +175,14 @@ fun LanStatusBadge(
     modifier: Modifier = Modifier
 ) {
     val isBtReady = !bluetoothAddress.isNullOrBlank()
+    val lanColor = MaterialTheme.colorScheme.primary
     val badgeBg = when {
-        isOnlineLan -> PokieEmerald.copy(alpha = 0.15f)
+        isOnlineLan -> lanColor.copy(alpha = 0.15f)
         isBtReady -> androidx.compose.ui.graphics.Color(0xFF2979FF).copy(alpha = 0.15f)
         else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f)
     }
     val badgeContentColor = when {
-        isOnlineLan -> PokieEmerald
+        isOnlineLan -> lanColor
         isBtReady -> androidx.compose.ui.graphics.Color(0xFF2979FF)
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
@@ -498,8 +515,20 @@ fun ChatBubble(
         MaterialTheme.colorScheme.onSurfaceVariant
     }
 
-    val timeFormatter = SimpleDateFormat("HH:mm", Locale.getDefault())
-    val formattedTime = timeFormatter.format(Date(message.timestamp))
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val formattedTime = remember(message.timestamp) {
+        val nowCal = java.util.Calendar.getInstance()
+        val msgCal = java.util.Calendar.getInstance().apply { timeInMillis = message.timestamp }
+        val timeStr = android.text.format.DateFormat.getTimeFormat(context).format(Date(message.timestamp))
+        val isToday = nowCal.get(java.util.Calendar.YEAR) == msgCal.get(java.util.Calendar.YEAR) &&
+                      nowCal.get(java.util.Calendar.DAY_OF_YEAR) == msgCal.get(java.util.Calendar.DAY_OF_YEAR)
+        if (isToday) {
+            timeStr
+        } else {
+            val dateStr = android.text.format.DateFormat.getMediumDateFormat(context).format(Date(message.timestamp))
+            "$dateStr, $timeStr"
+        }
+    }
 
     Row(
         modifier = modifier

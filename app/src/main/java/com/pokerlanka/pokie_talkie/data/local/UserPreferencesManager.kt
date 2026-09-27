@@ -207,5 +207,6 @@ class UserPreferencesManager(context: Context) {
     fun isMessageSoundEnabled(): Boolean = _messageSoundEnabledFlow.value
     fun isMessageVibrationEnabled(): Boolean = _messageVibrationEnabledFlow.value
     fun isAutoCheckUpdates(): Boolean = _autoCheckUpdatesFlow.value
+    fun getLastUpdateCheckTime(): Long = _lastUpdateCheckTimeFlow.value
 }
 

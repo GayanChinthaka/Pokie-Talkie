@@ -1,5 +1,9 @@
 package com.pokerlanka.pokie_talkie.ui.chat
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.widget.Toast
+import androidx.core.app.ActivityCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -19,7 +23,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -42,6 +45,8 @@ class ChatViewModel(
 ) : ViewModel() {
 
     private val _inputText = MutableStateFlow("")
+    val inputText: StateFlow<String> = _inputText.asStateFlow()
+
     private val _isStickerPickerOpen = MutableStateFlow(false)
     val isStickerPickerOpen: StateFlow<Boolean> = _isStickerPickerOpen.asStateFlow()
 
@@ -49,25 +54,7 @@ class ChatViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val contact: StateFlow<Contact?> = contactRepository.getContactFlow(peerId)
-        .map { c ->
-            if (c != null && c.bluetoothAddress.isBlank()) {
-                val btAddr = fcmSignalingClient.bluetoothTransportManager.getKnownOrPairedAddress(c.id, c.name, c.bluetoothAddress)
-                if (!btAddr.isNullOrBlank()) c.copy(bluetoothAddress = btAddr) else c
-            } else c
-        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
-
-    init {
-        markConversationAsRead()
-        viewModelScope.launch {
-            messages.collect { msgs ->
-                val hasUnreadIncoming = msgs.any { !it.isFromMe && it.status != MessageStatus.READ }
-                if (hasUnreadIncoming) {
-                    markConversationAsRead()
-                }
-            }
-        }
-    }
 
     fun markConversationAsRead() {
         viewModelScope.launch {
@@ -96,9 +83,6 @@ class ChatViewModel(
 
         _inputText.value = ""
         viewModelScope.launch {
-            val contactObj = contact.value
-            val isLan = contactObj?.isOnlineLan == true
-            val initialStatus = if (isLan) MessageStatus.SENT_LAN else MessageStatus.SENT_FCM
             val messageId = UUID.randomUUID().toString()
 
             chatRepository.saveMessage(
@@ -108,25 +92,27 @@ class ChatViewModel(
                 content = text,
                 type = MessageType.TEXT,
                 isFromMe = true,
-                status = initialStatus
+                status = MessageStatus.SENDING
             )
 
-            // Dispatch payload with messageId
-            fcmSignalingClient.sendChatMessage(
+            val result = fcmSignalingClient.sendChatMessageSync(
                 targetId = peerId,
                 content = text,
                 type = MessageType.TEXT,
                 messageId = messageId
             )
+            val finalStatus = if (result.success) {
+                if (result.isLan) MessageStatus.SENT_LAN else MessageStatus.SENT_FCM
+            } else {
+                MessageStatus.FAILED
+            }
+            chatRepository.updateMessageStatus(messageId, finalStatus)
         }
     }
 
     fun sendSticker(sticker: Sticker) {
         _isStickerPickerOpen.value = false
         viewModelScope.launch {
-            val contactObj = contact.value
-            val isLan = contactObj?.isOnlineLan == true
-            val initialStatus = if (isLan) MessageStatus.SENT_LAN else MessageStatus.SENT_FCM
             val messageId = UUID.randomUUID().toString()
 
             chatRepository.saveMessage(
@@ -136,21 +122,33 @@ class ChatViewModel(
                 content = sticker.emojiRepresentation,
                 type = MessageType.STICKER,
                 isFromMe = true,
-                status = initialStatus,
+                status = MessageStatus.SENDING,
                 extraData = sticker.title
             )
 
-            fcmSignalingClient.sendChatMessage(
+            val result = fcmSignalingClient.sendChatMessageSync(
                 targetId = peerId,
                 content = sticker.emojiRepresentation,
                 type = MessageType.STICKER,
                 messageId = messageId
             )
+            val finalStatus = if (result.success) {
+                if (result.isLan) MessageStatus.SENT_LAN else MessageStatus.SENT_FCM
+            } else {
+                MessageStatus.FAILED
+            }
+            chatRepository.updateMessageStatus(messageId, finalStatus)
         }
     }
 
-    fun initiateCall(callType: CallType) {
-        val peer = contact.value ?: return
+    fun initiateCall(callType: CallType): Boolean {
+        val ctx = telecomCallManager.context
+        if (ActivityCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED ||
+            (callType == CallType.VIDEO && ActivityCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)) {
+            Toast.makeText(ctx, "Microphone and Camera permissions are required to make calls", Toast.LENGTH_LONG).show()
+            return false
+        }
+        val peer = contact.value ?: return false
         val callId = UUID.randomUUID().toString()
         val isBt = !peer.isOnlineLan || connectivityMonitor.activeTransport.value == ActiveTransportMode.BLUETOOTH
         telecomCallManager.startOutgoingCall(
@@ -160,6 +158,7 @@ class ChatViewModel(
             callId = callId,
             isBluetoothVoice = isBt
         )
+        return true
     }
 
     companion object {

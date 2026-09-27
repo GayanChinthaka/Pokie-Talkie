@@ -131,7 +131,20 @@ data class SignalingPayload(
     val isCameraOn: Boolean? = null,
     @SerializedName("timestamp")
     val timestamp: Long = System.currentTimeMillis()
-)
+) {
+    @Transient
+    var sourceIp: String? = null
+}
+
+fun SignalingPayload.isValid(): Boolean {
+    @Suppress("USELESS_CAST")
+    val t = type as SignalingType?
+    @Suppress("USELESS_CAST")
+    val sId = senderId as String?
+    @Suppress("USELESS_CAST")
+    val tId = targetId as String?
+    return t != null && !sId.isNullOrBlank() && tId != null
+}
 
 data class CallSession(
     val callId: String,

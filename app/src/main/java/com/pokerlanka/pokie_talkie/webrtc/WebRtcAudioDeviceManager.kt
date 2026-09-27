@@ -69,8 +69,19 @@ class WebRtcAudioDeviceManager(private val context: Context) {
     fun isMicrophoneMute(): Boolean = audioManager.isMicrophoneMute
 
     fun stopCallAudio() {
+        if (!isCallActive) return
         isCallActive = false
+        performAudioReset()
+        Log.d(tag, "Call audio session stopped")
+    }
 
+    fun resetToNormal() {
+        isCallActive = false
+        performAudioReset()
+        Log.d(tag, "Audio reset forced to MODE_NORMAL")
+    }
+
+    private fun performAudioReset() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 activeFocusRequest?.let {
@@ -85,14 +96,9 @@ class WebRtcAudioDeviceManager(private val context: Context) {
             audioManager.isSpeakerphoneOn = false
             audioManager.isMicrophoneMute = false
             audioManager.mode = AudioManager.MODE_NORMAL
-
-            Log.d(tag, "Call audio session stopped, forced audio mode to MODE_NORMAL and abandoned focus")
         } catch (e: Exception) {
-            Log.e(tag, "Error stopping call audio: ${e.message}")
+            Log.e(tag, "Error performing audio reset: ${e.message}")
         }
     }
-
-    fun resetToNormal() {
-        stopCallAudio()
-    }
 }
+

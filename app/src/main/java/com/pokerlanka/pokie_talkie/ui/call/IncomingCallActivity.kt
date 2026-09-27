@@ -32,22 +32,50 @@ class IncomingCallActivity : ComponentActivity() {
                 fcmSignalingClient = container.fcmSignalingClient,
                 telecomCallManager = container.telecomCallManager,
                 bluetoothVoiceManager = container.bluetoothVoiceManager,
-                ringtoneVibrationManager = container.ringtoneVibrationManager
+                ringtoneVibrationManager = container.ringtoneVibrationManager,
+                callController = container.callController
             )
         )[CallViewModel::class.java]
 
-        val autoAnswer = intent.getBooleanExtra("auto_answer", false)
-        if (autoAnswer) {
-            viewModel.answerCall()
+        if (savedInstanceState == null) {
+            val autoAnswer = intent.getBooleanExtra("auto_answer", false)
+            if (autoAnswer) {
+                viewModel.answerCall()
+            }
         }
 
         setContent {
-            PokieTalkieTheme {
+            val themeMode by container.userPreferencesManager.themeModeFlow.collectAsState()
+            val accentColor by container.userPreferencesManager.themeAccentColorFlow.collectAsState()
+            PokieTalkieTheme(themeMode = themeMode, accentColor = accentColor) {
                 CallScreen(
                     viewModel = viewModel,
                     onCallEnded = { finish() }
                 )
             }
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val autoAnswer = intent.getBooleanExtra("auto_answer", false)
+        if (autoAnswer) {
+            val app = application as PokieApp
+            val container = app.appContainer
+            val viewModel = ViewModelProvider(
+                this,
+                CallViewModel.provideFactory(
+                    callRepository = container.callRepository,
+                    webRtcManager = container.webRtcManager,
+                    fcmSignalingClient = container.fcmSignalingClient,
+                    telecomCallManager = container.telecomCallManager,
+                    bluetoothVoiceManager = container.bluetoothVoiceManager,
+                    ringtoneVibrationManager = container.ringtoneVibrationManager,
+                    callController = container.callController
+                )
+            )[CallViewModel::class.java]
+            viewModel.answerCall()
         }
     }
 

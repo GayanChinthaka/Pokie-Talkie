@@ -2,9 +2,16 @@
 <data-extraction-rules>
     <cloud-backup>
         <include domain="root" path="."/>
-        <exclude domain="root" path="databases/pokie_database"/>
+        <exclude domain="database" path="pokie_talkie.db"/>
+        <exclude domain="database" path="pokie_talkie.db-wal"/>
+        <exclude domain="database" path="pokie_talkie.db-shm"/>
+        <exclude domain="sharedpref" path="pokie_user_prefs.xml"/>
     </cloud-backup>
     <device-transfer>
         <include domain="root" path="."/>
+        <exclude domain="database" path="pokie_talkie.db"/>
+        <exclude domain="database" path="pokie_talkie.db-wal"/>
+        <exclude domain="database" path="pokie_talkie.db-shm"/>
+        <exclude domain="sharedpref" path="pokie_user_prefs.xml"/>
     </device-transfer>
 </data-extraction-rules>

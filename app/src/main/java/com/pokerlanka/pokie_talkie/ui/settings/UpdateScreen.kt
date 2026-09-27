@@ -58,7 +58,6 @@ import androidx.compose.ui.unit.sp
 import com.pokerlanka.pokie_talkie.BuildConfig
 import com.pokerlanka.pokie_talkie.ui.components.Material3SettingsGroup
 import com.pokerlanka.pokie_talkie.ui.components.Material3SettingsItem
-import com.pokerlanka.pokie_talkie.ui.theme.PokieEmerald
 import com.pokerlanka.pokie_talkie.utils.ReleaseInfo
 import com.pokerlanka.pokie_talkie.utils.Updater
 import kotlinx.coroutines.launch
@@ -255,7 +254,7 @@ fun UpdateScreen(
                                     Surface(
                                         modifier = Modifier.size(40.dp),
                                         shape = CircleShape,
-                                        color = PokieEmerald
+                                        color = MaterialTheme.colorScheme.primary
                                     ) {
                                         Box(contentAlignment = Alignment.Center) {
                                             Icon(
@@ -318,7 +317,7 @@ fun UpdateScreen(
                                 Icon(
                                     imageVector = Icons.Default.CheckCircle,
                                     contentDescription = null,
-                                    tint = PokieEmerald,
+                                    tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(28.dp)
                                 )
                                 Spacer(modifier = Modifier.width(14.dp))

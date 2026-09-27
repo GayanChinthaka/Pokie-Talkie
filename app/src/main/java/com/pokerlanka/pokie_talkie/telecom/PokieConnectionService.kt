@@ -17,8 +17,8 @@ class PokieConnectionService : ConnectionService() {
     private val tag = "PokieConnectionService"
 
     companion object {
+        @Volatile
         var activeConnection: PokieConnection? = null
-            private set
     }
 
     override fun onCreateIncomingConnection(
@@ -42,9 +42,7 @@ class PokieConnectionService : ConnectionService() {
             callType = callType,
             callRepository = app.appContainer.callRepository,
             webRtcManager = app.appContainer.webRtcManager,
-            onEndCallRequested = { peer, cId ->
-                app.appContainer.fcmSignalingClient.sendHangup(peer, cId)
-            }
+            callController = app.appContainer.callController
         )
 
         connection.setAddress(Uri.fromParts("tel", callerId, null), TelecomManager.PRESENTATION_ALLOWED)
@@ -68,13 +66,20 @@ class PokieConnectionService : ConnectionService() {
         connectionManagerPhoneAccount: PhoneAccountHandle?,
         request: ConnectionRequest?
     ): Connection {
-        Log.i(tag, "onCreateOutgoingConnection requested by TelecomManager")
-        val extras = request?.extras ?: Bundle()
-        val peerId = extras.getString(TelecomCallManager.EXTRA_PEER_ID) ?: "unknown"
-        val peerName = extras.getString(TelecomCallManager.EXTRA_PEER_NAME) ?: "Family Member"
-        val callId = extras.getString(TelecomCallManager.EXTRA_CALL_ID) ?: ""
-        val callTypeStr = extras.getString(TelecomCallManager.EXTRA_CALL_TYPE) ?: CallType.VOICE.name
+        Log.i(tag, "onCreateOutgoingConnection requested by TelecomManager, request.extras=${request?.extras}")
+        val reqExtras = request?.extras ?: Bundle()
+        val nestedExtras = reqExtras.getBundle(TelecomManager.EXTRA_OUTGOING_CALL_EXTRAS) ?: reqExtras
+        val peerId = nestedExtras.getString(TelecomCallManager.EXTRA_PEER_ID)
+            ?: reqExtras.getString(TelecomCallManager.EXTRA_PEER_ID) ?: "unknown"
+        val peerName = nestedExtras.getString(TelecomCallManager.EXTRA_PEER_NAME)
+            ?: reqExtras.getString(TelecomCallManager.EXTRA_PEER_NAME) ?: "Family Member"
+        val callId = nestedExtras.getString(TelecomCallManager.EXTRA_CALL_ID)
+            ?: reqExtras.getString(TelecomCallManager.EXTRA_CALL_ID) ?: ""
+        val callTypeStr = nestedExtras.getString(TelecomCallManager.EXTRA_CALL_TYPE)
+            ?: reqExtras.getString(TelecomCallManager.EXTRA_CALL_TYPE) ?: CallType.VOICE.name
         val callType = try { CallType.valueOf(callTypeStr) } catch (e: Exception) { CallType.VOICE }
+
+        Log.i(tag, "onCreateOutgoingConnection resolved: peerId=$peerId, peerName=$peerName, callId=$callId, callType=$callType")
 
         val app = application as PokieApp
         val connection = PokieConnection(
@@ -85,28 +90,15 @@ class PokieConnectionService : ConnectionService() {
             callType = callType,
             callRepository = app.appContainer.callRepository,
             webRtcManager = app.appContainer.webRtcManager,
-            onEndCallRequested = { peer, cId ->
-                app.appContainer.fcmSignalingClient.sendHangup(peer, cId)
-            }
+            callController = app.appContainer.callController
         )
 
         connection.setAddress(Uri.fromParts("tel", peerId, null), TelecomManager.PRESENTATION_ALLOWED)
         connection.setCallerDisplayName(peerName, TelecomManager.PRESENTATION_ALLOWED)
         connection.setDialing()
-        connection.extras = extras
+        connection.extras = reqExtras
 
         activeConnection = connection
-
-        // Initialize WebRTC for outgoing call and create SDP offer
-        try {
-            app.appContainer.webRtcManager.startLocalMedia(callType)
-            app.appContainer.webRtcManager.createPeerConnection()
-            app.appContainer.webRtcManager.createOffer()
-            Log.i(tag, "Outgoing WebRTC offer pipeline initiated for call $callId")
-        } catch (e: Exception) {
-            Log.e(tag, "Error initiating outgoing WebRTC offer: ${e.message}")
-        }
-
         return connection
     }
 

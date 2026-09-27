@@ -1,5 +1,9 @@
 package com.pokerlanka.pokie_talkie.ui.home
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.widget.Toast
+import androidx.core.app.ActivityCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -73,16 +77,8 @@ class HomeViewModel(
         } else {
             contacts.filter { it.name.contains(query, ignoreCase = true) || it.ipAddress.contains(query) }
         }
-        val enriched = filtered.map { contact ->
-            if (contact.bluetoothAddress.isBlank()) {
-                val resolvedBt = appContainer.bluetoothTransportManager.getKnownOrPairedAddress(contact.id, contact.name, contact.bluetoothAddress)
-                if (!resolvedBt.isNullOrBlank()) {
-                    contact.copy(bluetoothAddress = resolvedBt)
-                } else contact
-            } else contact
-        }
         HomeUiState(
-            contacts = enriched,
+            contacts = filtered,
             unreadCounts = unreadMap,
             searchQuery = query,
             myDeviceName = userName,
@@ -140,10 +136,16 @@ class HomeViewModel(
         }
     }
 
-    fun initiateCall(contact: Contact, callType: CallType) {
+    fun initiateCall(contact: Contact, callType: CallType): Boolean {
+        val ctx = appContainer.context
+        if (ActivityCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED ||
+            (callType == CallType.VIDEO && ActivityCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)) {
+            Toast.makeText(ctx, "Microphone and Camera permissions are required to make calls", Toast.LENGTH_LONG).show()
+            return false
+        }
         val callId = UUID.randomUUID().toString()
         val isBt = !contact.isOnlineLan || appContainer.connectivityMonitor.activeTransport.value == ActiveTransportMode.BLUETOOTH
-        telecomCallManager.startOutgoingCall(
+        return telecomCallManager.startOutgoingCall(
             recipientId = contact.id,
             recipientName = contact.name,
             callType = if (isBt) CallType.VOICE else callType,

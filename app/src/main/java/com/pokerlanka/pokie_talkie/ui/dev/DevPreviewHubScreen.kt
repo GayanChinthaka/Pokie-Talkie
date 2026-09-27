@@ -80,7 +80,6 @@ import com.pokerlanka.pokie_talkie.ui.chat.StickerPicker
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkBg
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkCard
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkSurface
-import com.pokerlanka.pokie_talkie.ui.theme.PokieEmerald
 import com.pokerlanka.pokie_talkie.ui.theme.PokieLanActiveBadge
 import com.pokerlanka.pokie_talkie.ui.theme.PokieTextPrimary
 import com.pokerlanka.pokie_talkie.ui.theme.PokieTextSecondary
@@ -158,7 +157,7 @@ fun DevPreviewHubScreen(
                         Icon(
                             imageVector = Icons.Default.Speed,
                             contentDescription = null,
-                            tint = PokieEmerald,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(32.dp)
                         )
                         Spacer(modifier = Modifier.width(12.dp))
@@ -194,7 +193,7 @@ fun DevPreviewHubScreen(
                         title = "Seed Demo Family",
                         subtitle = "Adds Mom, Dad, Sister & messages to Home screen",
                         icon = Icons.Default.PersonAdd,
-                        accentColor = PokieEmerald,
+                        accentColor = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.weight(1f),
                         onClick = {
                             coroutineScope.launch {
@@ -348,7 +347,7 @@ fun DevPreviewHubScreen(
                     subtitle = "Preview chat bubbles (Sent, LAN, Read), stickers, timestamps, typing bar",
                     icon = Icons.AutoMirrored.Filled.Chat,
                     badge = "Chat UI",
-                    badgeColor = PokieEmerald,
+                    badgeColor = MaterialTheme.colorScheme.primary,
                     onClick = {
                         coroutineScope.launch {
                             seedDemoData(appContainer)
@@ -464,7 +463,7 @@ fun DevPreviewHubScreen(
                         showEditProfileDialog = false
                         Toast.makeText(context, "Saved name: $testProfileName", Toast.LENGTH_SHORT).show()
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = PokieEmerald)
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
                     Text("Save")
                 }
@@ -525,7 +524,7 @@ fun DevPreviewHubScreen(
                         showAddContactDialog = false
                         Toast.makeText(context, "Device added: $name ($ip)", Toast.LENGTH_SHORT).show()
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = PokieEmerald)
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
                     Text("Add")
                 }
@@ -544,7 +543,7 @@ fun DevPreviewHubScreen(
 private fun SectionHeader(title: String) {
     Text(
         text = title,
-        color = PokieEmerald,
+        color = MaterialTheme.colorScheme.primary,
         fontWeight = FontWeight.Bold,
         fontSize = 14.sp,
         modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)

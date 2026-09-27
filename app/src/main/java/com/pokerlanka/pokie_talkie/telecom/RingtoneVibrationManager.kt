@@ -46,6 +46,7 @@ class RingtoneVibrationManager(
 
     // ---- Incoming call ring ----
     private var ringtone: Ringtone? = null
+    private var ringtonePlayer: MediaPlayer? = null
     private var isRinging = false
 
     // ---- Outgoing ringback tone ----
@@ -63,6 +64,7 @@ class RingtoneVibrationManager(
      * Start playing the device's default ringtone and vibration pattern
      * for an incoming call. Respects user preferences and device ringer mode.
      */
+    @Synchronized
     fun startIncomingRing() {
         if (isRinging) return
         isRinging = true
@@ -80,15 +82,29 @@ class RingtoneVibrationManager(
         if (allowRingtone && ringerMode == AudioManager.RINGER_MODE_NORMAL) {
             try {
                 val ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-                ringtone = RingtoneManager.getRingtone(context, ringtoneUri)?.apply {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    ringtone = RingtoneManager.getRingtone(context, ringtoneUri)?.apply {
                         isLooping = true
+                        audioAttributes = AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .build()
+                        play()
                     }
-                    audioAttributes = AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build()
-                    play()
+                } else {
+                    ringtonePlayer?.release()
+                    ringtonePlayer = MediaPlayer().apply {
+                        setAudioAttributes(
+                            AudioAttributes.Builder()
+                                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                .build()
+                        )
+                        setDataSource(context, ringtoneUri)
+                        isLooping = true
+                        prepare()
+                        start()
+                    }
                 }
                 Log.i(tag, "Incoming call ringtone started")
             } catch (e: Exception) {
@@ -100,6 +116,7 @@ class RingtoneVibrationManager(
     /**
      * Stop the incoming-call ringtone and vibration.
      */
+    @Synchronized
     fun stopIncomingRing() {
         if (!isRinging) return
         isRinging = false
@@ -108,6 +125,12 @@ class RingtoneVibrationManager(
             ringtone?.stop()
         } catch (ignored: Exception) {}
         ringtone = null
+
+        try {
+            ringtonePlayer?.stop()
+            ringtonePlayer?.release()
+        } catch (ignored: Exception) {}
+        ringtonePlayer = null
 
         stopVibration()
         Log.i(tag, "Incoming call ringtone stopped")
@@ -121,6 +144,7 @@ class RingtoneVibrationManager(
      * Play an audible ringback tone to the caller while the remote phone is
      * ringing. Uses a standard telephony SUP_RINGTONE.
      */
+    @Synchronized
     fun startRingbackTone() {
         if (isRingbackPlaying) return
         val allowRingback = userPreferencesManager?.isRingbackToneEnabled() ?: true
@@ -140,6 +164,7 @@ class RingtoneVibrationManager(
     /**
      * Stop the outgoing-call ringback tone.
      */
+    @Synchronized
     fun stopRingbackTone() {
         isRingbackPlaying = false
         try {
@@ -212,6 +237,7 @@ class RingtoneVibrationManager(
     /**
      * Stop all active tones and vibrations.
      */
+    @Synchronized
     fun stopAll() {
         stopIncomingRing()
         stopRingbackTone()

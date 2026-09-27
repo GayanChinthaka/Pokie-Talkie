@@ -50,13 +50,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pokerlanka.pokie_talkie.data.model.CallType
+import com.pokerlanka.pokie_talkie.data.model.MessageStatus
 import com.pokerlanka.pokie_talkie.ui.components.AvatarView
 import com.pokerlanka.pokie_talkie.ui.components.ChatBubble
 import com.pokerlanka.pokie_talkie.ui.components.LanStatusBadge
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkBg
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkInput
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkSurface
-import com.pokerlanka.pokie_talkie.ui.theme.PokieEmerald
 import com.pokerlanka.pokie_talkie.ui.theme.PokieTextPrimary
 import com.pokerlanka.pokie_talkie.ui.theme.PokieTextSecondary
 
@@ -70,18 +70,42 @@ fun ChatScreen(
     onChatClosed: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    DisposableEffect(Unit) {
-        onChatOpened()
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    var isResumed by remember { mutableStateOf(false) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                isResumed = true
+                onChatOpened()
+                viewModel.markConversationAsRead()
+            } else if (event == androidx.lifecycle.Lifecycle.Event.ON_PAUSE) {
+                isResumed = false
+                onChatClosed()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
+            isResumed = false
             onChatClosed()
+            lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
 
     val messages by viewModel.messages.collectAsState()
     val contact by viewModel.contact.collectAsState()
     val isStickerPickerOpen by viewModel.isStickerPickerOpen.collectAsState()
-    var inputText by remember { mutableStateOf("") }
+    val inputText by viewModel.inputText.collectAsState()
     val listState = rememberLazyListState()
+
+    LaunchedEffect(messages, isResumed) {
+        if (isResumed) {
+            val hasUnreadIncoming = messages.any { !it.isFromMe && it.status != MessageStatus.READ }
+            if (hasUnreadIncoming) {
+                viewModel.markConversationAsRead()
+            }
+        }
+    }
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
@@ -128,26 +152,28 @@ fun ChatScreen(
                 },
                 actions = {
                     IconButton(onClick = {
-                        viewModel.initiateCall(CallType.VOICE)
-                        contact?.id?.let { onNavigateToCall(it, CallType.VOICE) }
+                        if (viewModel.initiateCall(CallType.VOICE)) {
+                            contact?.id?.let { onNavigateToCall(it, CallType.VOICE) }
+                        }
                     }) {
                         Icon(
                             imageVector = Icons.Default.Call,
                             contentDescription = "Voice Call",
-                            tint = PokieEmerald
+                            tint = MaterialTheme.colorScheme.primary
                         )
                     }
 
                     IconButton(onClick = {
                         val isLan = contact?.isOnlineLan == true
                         val type = if (isLan) CallType.VIDEO else CallType.VOICE
-                        viewModel.initiateCall(type)
-                        contact?.id?.let { onNavigateToCall(it, type) }
+                        if (viewModel.initiateCall(type)) {
+                            contact?.id?.let { onNavigateToCall(it, type) }
+                        }
                     }) {
                         Icon(
                             imageVector = Icons.Default.Videocam,
                             contentDescription = "Video Call",
-                            tint = PokieEmerald
+                            tint = MaterialTheme.colorScheme.primary
                         )
                     }
                 },
@@ -189,16 +215,13 @@ fun ChatScreen(
                     Icon(
                         imageVector = Icons.Default.EmojiEmotions,
                         contentDescription = "Emojis & Stickers",
-                        tint = if (isStickerPickerOpen) PokieEmerald else MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = if (isStickerPickerOpen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
                 OutlinedTextField(
                     value = inputText,
-                    onValueChange = {
-                        inputText = it
-                        viewModel.onInputTextChanged(it)
-                    },
+                    onValueChange = viewModel::onInputTextChanged,
                     placeholder = {
                         Text("Type a family message...", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
                     },
@@ -218,14 +241,11 @@ fun ChatScreen(
                 )
 
                 IconButton(
-                    onClick = {
-                        viewModel.sendMessage()
-                        inputText = ""
-                    },
+                    onClick = viewModel::sendMessage,
                     modifier = Modifier
                         .size(44.dp)
                         .clip(CircleShape)
-                        .background(PokieEmerald)
+                        .background(MaterialTheme.colorScheme.primary)
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.Send,

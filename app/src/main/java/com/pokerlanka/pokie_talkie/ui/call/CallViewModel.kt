@@ -26,13 +26,17 @@ import kotlinx.coroutines.launch
 import org.webrtc.EglBase
 import org.webrtc.VideoTrack
 
+import com.pokerlanka.pokie_talkie.telecom.CallController
+import com.pokerlanka.pokie_talkie.telecom.EndReason
+
 class CallViewModel(
     private val callRepository: CallRepository,
     val webRtcManager: WebRtcManager,
     private val fcmSignalingClient: FcmSignalingClient,
     private val telecomCallManager: TelecomCallManager,
     val bluetoothVoiceManager: BluetoothVoiceManager,
-    private val ringtoneVibrationManager: RingtoneVibrationManager
+    private val ringtoneVibrationManager: RingtoneVibrationManager,
+    private val callController: CallController
 ) : ViewModel() {
 
     val currentCall: StateFlow<CallSession?> = callRepository.currentCall
@@ -69,17 +73,11 @@ class CallViewModel(
 
     val eglBaseContext: EglBase.Context = webRtcManager.eglBase.eglBaseContext
 
-    private var timerJob: Job? = null
-
     init {
         viewModelScope.launch {
             callRepository.currentCall.collect { session ->
                 if (session?.state == CallState.CONNECTED) {
                     ringtoneVibrationManager.stopAll()
-                    startTimer()
-                } else if (session?.state == CallState.DISCONNECTED || session?.state == CallState.REJECTED) {
-                    ringtoneVibrationManager.stopAll()
-                    stopTimer()
                 }
             }
         }
@@ -94,48 +92,34 @@ class CallViewModel(
         }
     }
 
-    private fun startTimer() {
-        if (timerJob?.isActive == true) return
-        timerJob = viewModelScope.launch {
-            var seconds = 0L
-            while (isActive) {
-                delay(1000)
-                seconds++
-                callRepository.updateDuration(seconds)
-            }
-        }
-    }
-
-    private fun stopTimer() {
-        timerJob?.cancel()
-        timerJob = null
-    }
-
     fun answerCall() {
+        val session = callRepository.currentCall.value
+        if (session == null || session.state != CallState.RINGING_INCOMING) {
+            return
+        }
         ringtoneVibrationManager.stopAll()
-        val session = currentCall.value
-        val isBt = session?.isBluetoothVoice == true
+        val isBt = session.isBluetoothVoice
         if (isBt) {
             callRepository.updateCallState(CallState.CONNECTED)
-            session?.peerId?.let { peerId ->
-                fcmSignalingClient.sendBluetoothCallAnswer(peerId, session.callId)
-            }
+            PokieConnectionService.activeConnection?.setActive()
+            fcmSignalingClient.sendBluetoothCallAnswer(session.peerId, session.callId)
             bluetoothVoiceManager.startVoiceServer()
         } else {
-            val callType = session?.callType ?: CallType.VOICE
+            val callType = session.callType
             val activeConn = PokieConnectionService.activeConnection
             if (activeConn != null) {
                 activeConn.onAnswer(0)
             } else {
                 callRepository.updateCallState(CallState.CONNECTED)
+                com.pokerlanka.pokie_talkie.service.PokieLocalService.notifyCallStarted(telecomCallManager.context, isVideo = (callType == CallType.VIDEO))
                 webRtcManager.answerIncomingCall(callType)
             }
         }
-        telecomCallManager.dismissCallNotification()
+        telecomCallManager.dismissIncomingCallUi()
     }
 
     fun toggleMute() {
-        val session = currentCall.value
+        val session = callRepository.currentCall.value
         if (session?.isBluetoothVoice == true) {
             bluetoothVoiceManager.isMuted = !bluetoothVoiceManager.isMuted
             _btMuted.value = bluetoothVoiceManager.isMuted
@@ -146,14 +130,14 @@ class CallViewModel(
 
     fun toggleVideo() {
         val newVideo = webRtcManager.toggleVideo()
-        val session = currentCall.value
+        val session = callRepository.currentCall.value
         if (session != null && !session.isBluetoothVoice) {
             fcmSignalingClient.sendCameraState(session.peerId, session.callId, newVideo)
         }
     }
 
     fun requestSwitchToVideo() {
-        val session = currentCall.value ?: return
+        val session = callRepository.currentCall.value ?: return
         if (session.isBluetoothVoice) {
             callRepository.emitMessage("Video calls require Wi-Fi LAN connection")
             return
@@ -163,7 +147,7 @@ class CallViewModel(
     }
 
     fun acceptSwitchToVideo() {
-        val session = currentCall.value ?: return
+        val session = callRepository.currentCall.value ?: return
         callRepository.setVideoUpgradeRequest(null)
         callRepository.updateCallType(CallType.VIDEO)
         webRtcManager.upgradeToVideo()
@@ -174,13 +158,13 @@ class CallViewModel(
     }
 
     fun declineSwitchToVideo() {
-        val session = currentCall.value ?: return
+        val session = callRepository.currentCall.value ?: return
         callRepository.setVideoUpgradeRequest(null)
         fcmSignalingClient.sendSwitchToVideoDecline(session.peerId, session.callId)
     }
 
     fun toggleSpeaker() {
-        val session = currentCall.value
+        val session = callRepository.currentCall.value
         if (session?.isBluetoothVoice == true) {
             val nextSpeaker = !_btSpeakerOn.value
             bluetoothVoiceManager.setSpeakerphone(nextSpeaker)
@@ -195,27 +179,12 @@ class CallViewModel(
     }
 
     fun hangupCall() {
-        val session = currentCall.value
-        if (session != null) {
-            fcmSignalingClient.sendHangup(session.peerId, session.callId)
-        }
-        if (session?.isBluetoothVoice == true) {
-            bluetoothVoiceManager.stopDuplexAudio()
-        } else {
-            webRtcManager.endCall()
-        }
-        PokieConnectionService.activeConnection?.markDisconnected()
-        telecomCallManager.dismissCallNotification()
-        viewModelScope.launch {
-            callRepository.endCallAndLog()
-        }
-        ringtoneVibrationManager.stopAll()
+        val session = callRepository.currentCall.value
+        callController.endCall(EndReason.LOCAL_HANGUP, notifyPeer = true, expectedCallId = session?.callId)
     }
 
     override fun onCleared() {
         super.onCleared()
-        stopTimer()
-        ringtoneVibrationManager.stopAll()
     }
 
     companion object {
@@ -225,11 +194,20 @@ class CallViewModel(
             fcmSignalingClient: FcmSignalingClient,
             telecomCallManager: TelecomCallManager,
             bluetoothVoiceManager: BluetoothVoiceManager,
-            ringtoneVibrationManager: RingtoneVibrationManager
+            ringtoneVibrationManager: RingtoneVibrationManager,
+            callController: CallController
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return CallViewModel(callRepository, webRtcManager, fcmSignalingClient, telecomCallManager, bluetoothVoiceManager, ringtoneVibrationManager) as T
+                return CallViewModel(
+                    callRepository,
+                    webRtcManager,
+                    fcmSignalingClient,
+                    telecomCallManager,
+                    bluetoothVoiceManager,
+                    ringtoneVibrationManager,
+                    callController
+                ) as T
             }
         }
     }
