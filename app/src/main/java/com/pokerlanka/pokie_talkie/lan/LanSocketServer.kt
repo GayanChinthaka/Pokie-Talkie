@@ -33,6 +33,29 @@ class LanSocketServer(
     var serverPort: Int = 52220
         private set
 
+    fun getLocalIpAddress(): String? {
+        try {
+            val interfaces = java.net.NetworkInterface.getNetworkInterfaces() ?: return null
+            while (interfaces.hasMoreElements()) {
+                val intf = interfaces.nextElement()
+                if (intf.isLoopback || !intf.isUp) continue
+                val addrs = intf.inetAddresses ?: continue
+                while (addrs.hasMoreElements()) {
+                    val addr = addrs.nextElement()
+                    if (!addr.isLoopbackAddress && addr is java.net.Inet4Address) {
+                        val host = addr.hostAddress
+                        if (!host.isNullOrBlank() && !host.startsWith("127.")) {
+                            return host
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "Failed to get local IP: ${e.message}")
+        }
+        return null
+    }
+
     private val activeConnections = AtomicInteger(0)
     private val maxConcurrentConnections = 16
     private val maxPayloadChars = 1024 * 1024 // 1 MB cap

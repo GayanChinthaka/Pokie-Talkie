@@ -31,7 +31,6 @@ class IncomingCallActivity : ComponentActivity() {
                 webRtcManager = container.webRtcManager,
                 fcmSignalingClient = container.fcmSignalingClient,
                 telecomCallManager = container.telecomCallManager,
-                bluetoothVoiceManager = container.bluetoothVoiceManager,
                 ringtoneVibrationManager = container.ringtoneVibrationManager,
                 callController = container.callController
             )
@@ -70,7 +69,6 @@ class IncomingCallActivity : ComponentActivity() {
                     webRtcManager = container.webRtcManager,
                     fcmSignalingClient = container.fcmSignalingClient,
                     telecomCallManager = container.telecomCallManager,
-                    bluetoothVoiceManager = container.bluetoothVoiceManager,
                     ringtoneVibrationManager = container.ringtoneVibrationManager,
                     callController = container.callController
                 )

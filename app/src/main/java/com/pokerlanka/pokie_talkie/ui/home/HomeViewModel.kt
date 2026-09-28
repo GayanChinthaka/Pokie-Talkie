@@ -54,11 +54,6 @@ class HomeViewModel(
     private val _showAddContactDialog = MutableStateFlow(false)
     val showAddContactDialog: StateFlow<Boolean> = _showAddContactDialog.asStateFlow()
 
-    init {
-        viewModelScope.launch {
-            appContainer.bluetoothTransportManager.syncPairedDevicesToContacts()
-        }
-    }
 
     private val dialogsFlow = combine(_showEditProfileDialog, _showAddContactDialog) { edit, add -> Pair(edit, add) }
     private val userAndTransportFlow = combine(userPrefs.userNameFlow, appContainer.connectivityMonitor.activeTransport) { name, transport -> Pair(name, transport) }
@@ -144,13 +139,11 @@ class HomeViewModel(
             return false
         }
         val callId = UUID.randomUUID().toString()
-        val isBt = !contact.isOnlineLan || appContainer.connectivityMonitor.activeTransport.value == ActiveTransportMode.BLUETOOTH
         return telecomCallManager.startOutgoingCall(
             recipientId = contact.id,
             recipientName = contact.name,
-            callType = if (isBt) CallType.VOICE else callType,
-            callId = callId,
-            isBluetoothVoice = isBt
+            callType = callType,
+            callId = callId
         )
     }
 

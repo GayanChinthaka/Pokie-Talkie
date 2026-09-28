@@ -1,6 +1,5 @@
 package com.pokerlanka.pokie_talkie.lan
 
-import android.bluetooth.BluetoothAdapter
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -9,7 +8,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
-import com.pokerlanka.pokie_talkie.bluetooth.BluetoothTransportManager
+import android.net.wifi.WifiManager
 import com.pokerlanka.pokie_talkie.wifip2p.WifiDirectManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,27 +16,22 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-import android.net.wifi.WifiManager
-
 enum class ActiveTransportMode {
     WIFI,
     WIFI_DIRECT,
-    BLUETOOTH,
     OFFLINE
 }
 
 class ConnectivityMonitor(
     private val context: Context,
     private val scope: CoroutineScope,
-    private val wifiDirectManager: WifiDirectManager,
-    private val bluetoothTransportManager: BluetoothTransportManager
+    private val wifiDirectManager: WifiDirectManager
 ) {
     private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
     private val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
     private val availableWifiNetworks = mutableSetOf<Network>()
 
     var onWifiLost: (() -> Unit)? = null
-    var onBluetoothStateOn: (() -> Unit)? = null
 
     private val _activeTransport = MutableStateFlow(determineTransport())
     val activeTransport: StateFlow<ActiveTransportMode> = _activeTransport.asStateFlow()
@@ -68,13 +62,6 @@ class ConnectivityMonitor(
 
     private val broadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            val action = intent?.action
-            if (action == BluetoothAdapter.ACTION_STATE_CHANGED) {
-                val state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
-                if (state == BluetoothAdapter.STATE_ON) {
-                    onBluetoothStateOn?.invoke()
-                }
-            }
             updateTransport()
         }
     }
@@ -94,7 +81,6 @@ class ConnectivityMonitor(
 
         try {
             val filter = IntentFilter().apply {
-                addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
                 addAction(WifiManager.WIFI_STATE_CHANGED_ACTION)
                 addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION)
                 @Suppress("DEPRECATION")
@@ -153,10 +139,6 @@ class ConnectivityMonitor(
             if (netInfo?.isConnected == true && netInfo.type == ConnectivityManager.TYPE_WIFI) {
                 return ActiveTransportMode.WIFI
             }
-        }
-
-        if (bluetoothTransportManager.isBluetoothEnabled) {
-            return ActiveTransportMode.BLUETOOTH
         }
 
         return ActiveTransportMode.OFFLINE

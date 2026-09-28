@@ -59,6 +59,9 @@ class PokieFirebaseMessagingService : FirebaseMessagingService() {
                     val callTypeStr = data["callType"]
                     val callType = callTypeStr?.let { try { CallType.valueOf(it) } catch (e: Exception) { null } }
                     val content = data["content"]
+                    val senderFcmToken = data["senderFcmToken"]
+                    val senderIp = data["senderIp"]
+                    val senderPort = data["senderPort"]?.toIntOrNull()
                     SignalingPayload(
                         type = type,
                         senderId = senderId,
@@ -66,7 +69,10 @@ class PokieFirebaseMessagingService : FirebaseMessagingService() {
                         targetId = container.currentUserId,
                         callId = callId,
                         callType = callType,
-                        messageContent = content
+                        messageContent = content,
+                        senderFcmToken = senderFcmToken,
+                        senderIp = senderIp,
+                        senderPort = senderPort
                     )
                 } catch (e: Exception) {
                     Log.e(tag, "Error building fallback payload from FCM: ${e.message}")

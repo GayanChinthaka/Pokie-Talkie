@@ -142,22 +142,8 @@ class PokieLocalService : Service() {
         val notification = buildServiceNotification(inCall)
 
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val hasBtConnect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
-                } else {
-                    true
-                }
-
-                val connectedDeviceType = if (hasBtConnect) {
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
-                } else {
-                    0
-                }
-
                 if (inCall) {
-                    var callServiceType = connectedDeviceType or
-                        ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL or
+                    var callServiceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL or
                         ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
                     if (isVideo) {
                         callServiceType = callServiceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
@@ -167,19 +153,10 @@ class PokieLocalService : Service() {
                         startForeground(NOTIFICATION_ID, notification, callServiceType)
                         return
                     } catch (e: Exception) {
-                        Log.w(tag, "startForeground with callServiceType failed ($e), falling back to CONNECTED_DEVICE")
+                        Log.w(tag, "startForeground with callServiceType failed ($e)")
                     }
                 }
-
-                // Fallback or not in call:
-                if (connectedDeviceType != 0) {
-                    startForeground(NOTIFICATION_ID, notification, connectedDeviceType)
-                } else {
-                    startForeground(NOTIFICATION_ID, notification)
-                }
-            } else {
                 startForeground(NOTIFICATION_ID, notification)
-            }
         } catch (e: Exception) {
             Log.w(tag, "startForeground failed, falling back to simple startForeground: ${e.message}")
             try {
@@ -201,8 +178,8 @@ class PokieLocalService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val title = if (inCall) "Pokie-Talkie Active Call" else "Pokie-Talkie Proximity Active"
-        val message = if (inCall) "Call in progress on local network" else "Ready for LAN & Bluetooth family calls & messages"
+        val title = if (inCall) "Pokie-Talkie Active Call" else "Pokie-Talkie Service Active"
+        val message = if (inCall) "Call in progress on local network" else "Ready for LAN family calls & messages"
 
         return NotificationCompat.Builder(this, CHANNEL_SERVICE_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
@@ -219,10 +196,10 @@ class PokieLocalService : Service() {
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val channel = NotificationChannel(
                 CHANNEL_SERVICE_ID,
-                "Pokie Proximity Service",
+                "Pokie LAN Service",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Keeps local WiFi and Bluetooth listeners active for incoming calls and messages"
+                description = "Keeps local WiFi listeners active for incoming calls and messages"
                 setShowBadge(false)
             }
             notificationManager.createNotificationChannel(channel)

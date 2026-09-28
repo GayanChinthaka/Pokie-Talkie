@@ -13,8 +13,8 @@ android {
         applicationId = "com.pokerlanka.pokie_talkie"
         minSdk = 26
         targetSdk = 34
-        versionCode = 300
-        versionName = "3.0.0"
+        versionCode = 310
+        versionName = "3.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

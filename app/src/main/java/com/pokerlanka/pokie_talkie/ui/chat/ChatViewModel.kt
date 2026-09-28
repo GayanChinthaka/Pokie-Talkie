@@ -155,13 +155,11 @@ class ChatViewModel(
         }
         val peer = contact.value ?: return false
         val callId = UUID.randomUUID().toString()
-        val isBt = !peer.isOnlineLan || connectivityMonitor.activeTransport.value == ActiveTransportMode.BLUETOOTH
         telecomCallManager.startOutgoingCall(
             recipientId = peer.id,
             recipientName = peer.name,
-            callType = if (isBt) CallType.VOICE else callType,
-            callId = callId,
-            isBluetoothVoice = isBt
+            callType = callType,
+            callId = callId
         )
         return true
     }

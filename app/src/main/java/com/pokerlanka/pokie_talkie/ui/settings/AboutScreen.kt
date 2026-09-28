@@ -22,13 +22,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
-import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhoneInTalk
 import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -202,14 +202,14 @@ fun AboutScreen(
                             description = { Text("DNS-SD / mDNS NSD discovery with direct TCP socket delivery") }
                         ),
                         Material3SettingsItem(
-                            icon = Icons.Default.Bluetooth,
-                            title = { Text("Bluetooth Proximity") },
-                            description = { Text("RFCOMM zero-router proximity channel for offline signaling & data") }
+                            icon = Icons.Default.Sensors,
+                            title = { Text("Cloud Wake-Up") },
+                            description = { Text("Firebase Cloud Messaging (FCM) v1 push for instant wake-up") }
                         ),
                         Material3SettingsItem(
                             icon = Icons.Default.PhoneInTalk,
                             title = { Text("Calling Engine") },
-                            description = { Text("Google WebRTC with Opus Codec + Bluetooth Duplex PCM Voice") }
+                            description = { Text("Google WebRTC with Opus Codec for HD Voice & Video") }
                         ),
                         Material3SettingsItem(
                             icon = Icons.Default.Lock,

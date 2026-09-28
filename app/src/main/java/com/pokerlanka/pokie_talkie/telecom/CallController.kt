@@ -2,7 +2,6 @@ package com.pokerlanka.pokie_talkie.telecom
 
 import android.telecom.DisconnectCause
 import android.util.Log
-import com.pokerlanka.pokie_talkie.bluetooth.BluetoothVoiceManager
 import com.pokerlanka.pokie_talkie.data.model.CallState
 import com.pokerlanka.pokie_talkie.data.repository.CallRepository
 import com.pokerlanka.pokie_talkie.fcm.FcmSignalingClient
@@ -25,7 +24,6 @@ enum class EndReason {
 class CallController(
     private val callRepository: CallRepository,
     private val webRtcManager: WebRtcManager,
-    private val bluetoothVoiceManager: BluetoothVoiceManager,
     private val telecomCallManager: TelecomCallManager,
     private val fcmSignalingClient: FcmSignalingClient,
     private val scope: CoroutineScope
@@ -122,16 +120,11 @@ class CallController(
                 fcmSignalingClient.sendHangup(peerId, callId)
             }
 
-            // 3. Always end WebRTC and Bluetooth voice audio
+            // 3. Always end WebRTC audio/video
             try {
                 webRtcManager.endCall()
             } catch (e: Exception) {
                 Log.e(tag, "Error ending WebRTC: ${e.message}")
-            }
-            try {
-                bluetoothVoiceManager.stopDuplexAudio()
-            } catch (e: Exception) {
-                Log.e(tag, "Error stopping Bluetooth voice: ${e.message}")
             }
 
             // 4. Mark Telecom connection disconnected & destroy

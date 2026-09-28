@@ -22,7 +22,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sensors
@@ -104,19 +103,16 @@ fun HomeScreen(
                             val transportText = when (state.activeTransport) {
                                 ActiveTransportMode.WIFI -> "Wi-Fi LAN"
                                 ActiveTransportMode.WIFI_DIRECT -> "Wi-Fi Direct"
-                                ActiveTransportMode.BLUETOOTH -> "Bluetooth"
                                 ActiveTransportMode.OFFLINE -> "Offline"
                             }
                             val transportColor = when (state.activeTransport) {
                                 ActiveTransportMode.WIFI -> PokieLanActiveBadge
                                 ActiveTransportMode.WIFI_DIRECT -> Color(0xFFAB47BC)
-                                ActiveTransportMode.BLUETOOTH -> Color(0xFF2979FF)
                                 ActiveTransportMode.OFFLINE -> MaterialTheme.colorScheme.onSurfaceVariant
                             }
                             val transportIcon = when (state.activeTransport) {
                                 ActiveTransportMode.WIFI -> Icons.Default.Wifi
                                 ActiveTransportMode.WIFI_DIRECT -> Icons.Default.Wifi
-                                ActiveTransportMode.BLUETOOTH -> Icons.Default.Bluetooth
                                 ActiveTransportMode.OFFLINE -> Icons.Default.Sensors
                             }
 
@@ -464,8 +460,7 @@ fun ContactItemCard(
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     LanStatusBadge(
-                        isOnlineLan = contact.isOnlineLan,
-                        bluetoothAddress = contact.bluetoothAddress
+                        isOnlineLan = contact.isOnlineLan
                     )
                     if (contact.isOnlineLan && contact.ipAddress.isNotBlank()) {
                         Spacer(modifier = Modifier.width(6.dp))

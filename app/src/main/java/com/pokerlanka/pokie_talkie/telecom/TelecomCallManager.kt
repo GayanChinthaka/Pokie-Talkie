@@ -56,7 +56,6 @@ class TelecomCallManager(
         PhoneAccountHandle(componentName, PHONE_ACCOUNT_ID)
     }
 
-    var onBluetoothCallInitiated: ((recipientId: String, recipientName: String, callId: String) -> Unit)? = null
 
     fun registerPhoneAccount() {
         try {
@@ -80,10 +79,9 @@ class TelecomCallManager(
         callerId: String,
         callerName: String,
         callType: CallType,
-        callId: String,
-        isBluetoothVoice: Boolean = false
+        callId: String
     ) {
-        Log.i(tag, "Reporting incoming call from $callerName ($callerId) [Type: $callType, ID: $callId, isBt: $isBluetoothVoice]")
+        Log.i(tag, "Reporting incoming call from $callerName ($callerId) [Type: $callType, ID: $callId]")
 
         val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
@@ -92,9 +90,9 @@ class TelecomCallManager(
 
         ringtoneVibrationManager.startIncomingRing()
 
-        if (isScreenOffOrLocked) {
-            // Wake screen & CPU so lockscreen full-screen activity can be displayed immediately
-            wakeUpScreen()
+        wakeUpScreen()
+
+        if (!isForeground) {
             try {
                 val directIntent = Intent(context, IncomingCallActivity::class.java).apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or
@@ -106,9 +104,9 @@ class TelecomCallManager(
                     putExtra(EXTRA_CALL_ID, callId)
                 }
                 context.startActivity(directIntent)
-                Log.i(tag, "Directly launched IncomingCallActivity on lockscreen/screen off")
+                Log.i(tag, "Directly launched IncomingCallActivity")
             } catch (e: Exception) {
-                Log.w(tag, "Direct startActivity for lockscreen incoming call failed: ${e.message}")
+                Log.w(tag, "Direct startActivity for incoming call failed: ${e.message}")
             }
         }
 
@@ -118,8 +116,7 @@ class TelecomCallManager(
             peerName = callerName,
             callType = callType,
             isIncoming = true,
-            state = CallState.RINGING_INCOMING,
-            isBluetoothVoice = isBluetoothVoice
+            state = CallState.RINGING_INCOMING
         )
         callRepository.setCallSession(session)
 
@@ -175,8 +172,7 @@ class TelecomCallManager(
         recipientId: String,
         recipientName: String,
         callType: CallType,
-        callId: String,
-        isBluetoothVoice: Boolean = false
+        callId: String
     ): Boolean {
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED ||
             (callType == CallType.VIDEO && ActivityCompat.checkSelfPermission(context, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)) {
@@ -185,7 +181,7 @@ class TelecomCallManager(
             return false
         }
 
-        Log.i(tag, "Starting outgoing call to $recipientName ($recipientId), isBt: $isBluetoothVoice")
+        Log.i(tag, "Starting outgoing call to $recipientName ($recipientId)")
 
         val session = CallSession(
             callId = callId,
@@ -193,25 +189,18 @@ class TelecomCallManager(
             peerName = recipientName,
             callType = callType,
             isIncoming = false,
-            state = CallState.RINGING_OUTGOING,
-            isBluetoothVoice = isBluetoothVoice
+            state = CallState.RINGING_OUTGOING
         )
-        PokieLocalService.notifyCallStarted(context, isVideo = (callType == CallType.VIDEO && !isBluetoothVoice))
+        PokieLocalService.notifyCallStarted(context, isVideo = (callType == CallType.VIDEO))
         callRepository.setCallSession(session)
         ringtoneVibrationManager.startRingbackTone()
 
-        if (!isBluetoothVoice) {
-            // Initialize WebRTC pipeline directly for immediate local media capture and Offer creation
-            try {
-                webRtcManager.startOutgoingCall(callType)
-                Log.i(tag, "Direct WebRTC outgoing media & offer pipeline initialized for $callType")
-            } catch (e: Exception) {
-                Log.e(tag, "Error starting outgoing WebRTC media pipeline: ${e.message}", e)
-            }
-        } else {
-            // Bluetooth voice call: trigger direct Bluetooth call offer without WebRTC
-            Log.i(tag, "Triggering Bluetooth voice call offer to $recipientId")
-            onBluetoothCallInitiated?.invoke(recipientId, recipientName, callId)
+        // Initialize WebRTC pipeline directly for immediate local media capture and Offer creation
+        try {
+            webRtcManager.startOutgoingCall(callType)
+            Log.i(tag, "Direct WebRTC outgoing media & offer pipeline initialized for $callType")
+        } catch (e: Exception) {
+            Log.e(tag, "Error starting outgoing WebRTC media pipeline: ${e.message}", e)
         }
 
         val outgoingExtras = Bundle().apply {

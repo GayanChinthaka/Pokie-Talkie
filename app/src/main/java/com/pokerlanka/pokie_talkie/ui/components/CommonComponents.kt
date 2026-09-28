@@ -30,10 +30,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Videocam
@@ -171,31 +172,13 @@ fun AvatarView(
 @Composable
 fun LanStatusBadge(
     isOnlineLan: Boolean,
-    bluetoothAddress: String? = null,
     modifier: Modifier = Modifier
 ) {
-    val isBtReady = !bluetoothAddress.isNullOrBlank()
     val lanColor = MaterialTheme.colorScheme.primary
-    val badgeBg = when {
-        isOnlineLan -> lanColor.copy(alpha = 0.15f)
-        isBtReady -> androidx.compose.ui.graphics.Color(0xFF2979FF).copy(alpha = 0.15f)
-        else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f)
-    }
-    val badgeContentColor = when {
-        isOnlineLan -> lanColor
-        isBtReady -> androidx.compose.ui.graphics.Color(0xFF2979FF)
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    val badgeIcon = when {
-        isOnlineLan -> Icons.Default.Wifi
-        isBtReady -> Icons.Default.Bluetooth
-        else -> Icons.Default.Sensors
-    }
-    val badgeText = when {
-        isOnlineLan -> "LAN Active"
-        isBtReady -> "Bluetooth Ready"
-        else -> "Bluetooth Proximity"
-    }
+    val badgeBg = if (isOnlineLan) lanColor.copy(alpha = 0.15f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f)
+    val badgeContentColor = if (isOnlineLan) lanColor else MaterialTheme.colorScheme.onSurfaceVariant
+    val badgeIcon = if (isOnlineLan) Icons.Default.Wifi else Icons.Default.Sensors
+    val badgeText = if (isOnlineLan) "LAN Active" else "Cloud / Offline"
 
     Surface(
         modifier = modifier,

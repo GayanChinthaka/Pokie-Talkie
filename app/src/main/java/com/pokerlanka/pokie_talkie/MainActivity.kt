@@ -40,12 +40,6 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             add(Manifest.permission.POST_NOTIFICATIONS)
         }
-        // Bluetooth permissions (Android 12+)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            add(Manifest.permission.BLUETOOTH_CONNECT)
-            add(Manifest.permission.BLUETOOTH_SCAN)
-            add(Manifest.permission.BLUETOOTH_ADVERTISE)
-        }
         // Nearby Wi-Fi Devices (Android 13+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             add(Manifest.permission.NEARBY_WIFI_DEVICES)
@@ -61,7 +55,7 @@ class MainActivity : ComponentActivity() {
         if (!allGranted) {
             Toast.makeText(
                 this,
-                "Microphone, Camera, Bluetooth & Local Network permissions are recommended for full proximity calling features.",
+                "Microphone, Camera & Local Network permissions are recommended for calling features.",
                 Toast.LENGTH_LONG
             ).show()
         }

@@ -64,7 +64,9 @@ enum class SignalingType {
     @SerializedName("renegotiation_answer")
     RENEGOTIATION_ANSWER,
     @SerializedName("ping")
-    PING
+    PING,
+    @SerializedName("pong")
+    PONG
 }
 
 data class Contact(
@@ -129,6 +131,12 @@ data class SignalingPayload(
     val isBluetoothVoice: Boolean = false,
     @SerializedName("isCameraOn")
     val isCameraOn: Boolean? = null,
+    @SerializedName("senderFcmToken")
+    val senderFcmToken: String? = null,
+    @SerializedName("senderIp")
+    val senderIp: String? = null,
+    @SerializedName("senderPort")
+    val senderPort: Int? = null,
     @SerializedName("timestamp")
     val timestamp: Long = System.currentTimeMillis()
 ) {

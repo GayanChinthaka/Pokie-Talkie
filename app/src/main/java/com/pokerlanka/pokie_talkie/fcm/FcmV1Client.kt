@@ -176,6 +176,9 @@ class FcmV1Client(private val context: Context) {
                         payload.callId?.let { put("callId", it) }
                         payload.callType?.let { put("callType", it.name) }
                         payload.messageContent?.let { put("content", it) }
+                        payload.senderFcmToken?.let { put("senderFcmToken", it) }
+                        payload.senderIp?.let { put("senderIp", it) }
+                        payload.senderPort?.let { put("senderPort", it.toString()) }
                     }
                     put("data", dataObj)
                     val androidConfig = JSONObject().apply {

@@ -135,8 +135,7 @@ fun ChatScreen(
                                 style = MaterialTheme.typography.titleMedium
                             )
                             LanStatusBadge(
-                                isOnlineLan = contact?.isOnlineLan == true,
-                                bluetoothAddress = contact?.bluetoothAddress
+                                isOnlineLan = contact?.isOnlineLan == true
                             )
                         }
                     }
