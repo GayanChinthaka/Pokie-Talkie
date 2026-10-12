@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeDown
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Cameraswitch
@@ -174,9 +175,11 @@ fun CallScreen(
                 modifier = Modifier.padding(top = 32.dp)
             ) {
                 // Transport Badge
+                val isBtCall = callSession?.isBluetoothVoice == true
+                val badgeColor = if (isBtCall) androidx.compose.ui.graphics.Color(0xFF2979FF) else PokieLanActiveBadge
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = PokieLanActiveBadge.copy(alpha = 0.2f),
+                    color = badgeColor.copy(alpha = 0.2f),
                     modifier = Modifier.padding(bottom = 12.dp)
                 ) {
                     Row(
@@ -184,15 +187,15 @@ fun CallScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Wifi,
+                            imageVector = if (isBtCall) Icons.Default.Bluetooth else Icons.Default.Wifi,
                             contentDescription = null,
-                            tint = PokieLanActiveBadge,
+                            tint = badgeColor,
                             modifier = Modifier.size(14.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "LAN Direct WebRTC",
-                            color = PokieLanActiveBadge,
+                            text = if (isBtCall) "Bluetooth Walkie-Talkie" else "LAN Direct WebRTC",
+                            color = badgeColor,
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold
                         )
@@ -211,12 +214,12 @@ fun CallScreen(
                 Text(
                     text = when (callSession?.state) {
                         CallState.RINGING_INCOMING -> "Incoming ${if (isVideo) "Video" else "Voice"} Call..."
-                        CallState.RINGING_OUTGOING -> "Ringing..."
-                        CallState.CONNECTING -> "Connecting WebRTC..."
-                        CallState.CONNECTED -> formattedDuration
+                        CallState.RINGING_OUTGOING -> if (isBtCall) "Calling over Bluetooth..." else "Ringing..."
+                        CallState.CONNECTING -> if (isBtCall) "Connecting Bluetooth Audio..." else "Connecting WebRTC..."
+                        CallState.CONNECTED -> if (isBtCall) "Connected • $formattedDuration" else formattedDuration
                         else -> "Connecting..."
                     },
-                    color = if (isConnected) PokieLanActiveBadge else PokieTextSecondary,
+                    color = if (isConnected) badgeColor else PokieTextSecondary,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = if (isConnected) FontWeight.Bold else FontWeight.Normal
                 )

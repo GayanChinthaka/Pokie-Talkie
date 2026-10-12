@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Lock
@@ -202,6 +203,11 @@ fun AboutScreen(
                             description = { Text("DNS-SD / mDNS NSD discovery with direct TCP socket delivery") }
                         ),
                         Material3SettingsItem(
+                            icon = Icons.Default.Bluetooth,
+                            title = { Text("Bluetooth Proximity") },
+                            description = { Text("RFCOMM zero-router proximity channel for offline signaling & data") }
+                        ),
+                        Material3SettingsItem(
                             icon = Icons.Default.Sensors,
                             title = { Text("Cloud Wake-Up") },
                             description = { Text("Firebase Cloud Messaging (FCM) v1 push for instant wake-up") }
@@ -209,7 +215,7 @@ fun AboutScreen(
                         Material3SettingsItem(
                             icon = Icons.Default.PhoneInTalk,
                             title = { Text("Calling Engine") },
-                            description = { Text("Google WebRTC with Opus Codec for HD Voice & Video") }
+                            description = { Text("Google WebRTC with Opus Codec + Bluetooth Duplex PCM Voice") }
                         ),
                         Material3SettingsItem(
                             icon = Icons.Default.Lock,

@@ -21,6 +21,11 @@ import java.security.spec.PKCS8EncodedKeySpec
 class FcmV1Client(private val context: Context) {
 
     private val tag = "FcmV1Client"
+
+    companion object {
+        // FCM rejects data payloads over 4096 bytes; keep some margin
+        private const val FCM_DATA_LIMIT_BYTES = 4000
+    }
     private val gson = Gson()
 
     private var projectId: String = ""
@@ -152,6 +157,17 @@ class FcmV1Client(private val context: Context) {
 
         val accessToken = getAccessToken() ?: return false
 
+        // Older app versions can't read compressed SDP, so only compress when the payload is over FCM's limit
+        var dataObj = buildDataObject(payload)
+        if (dataSizeBytes(dataObj) > FCM_DATA_LIMIT_BYTES && payload.sdp != null) {
+            dataObj = buildDataObject(payload.copy(sdp = SdpCompressor.compress(payload.sdp)))
+        }
+        val dataSize = dataSizeBytes(dataObj)
+        if (dataSize > FCM_DATA_LIMIT_BYTES) {
+            Log.e(tag, "FCM payload too large ($dataSize bytes > $FCM_DATA_LIMIT_BYTES) for type=${payload.type}, not sending")
+            return false
+        }
+
         return withContext(Dispatchers.IO) {
             try {
                 val fcmUrl = URL("https://fcm.googleapis.com/v1/projects/$projectId/messages:send")
@@ -164,22 +180,8 @@ class FcmV1Client(private val context: Context) {
                     readTimeout = 8000
                 }
 
-                val payloadJson = gson.toJson(payload)
-
                 val messageObj = JSONObject().apply {
                     put("token", targetFcmToken)
-                    val dataObj = JSONObject().apply {
-                        put("payload", payloadJson)
-                        put("type", payload.type.name)
-                        put("senderId", payload.senderId)
-                        put("senderName", payload.senderName)
-                        payload.callId?.let { put("callId", it) }
-                        payload.callType?.let { put("callType", it.name) }
-                        payload.messageContent?.let { put("content", it) }
-                        payload.senderFcmToken?.let { put("senderFcmToken", it) }
-                        payload.senderIp?.let { put("senderIp", it) }
-                        payload.senderPort?.let { put("senderPort", it.toString()) }
-                    }
                     put("data", dataObj)
                     val androidConfig = JSONObject().apply {
                         put("priority", "HIGH")
@@ -192,16 +194,19 @@ class FcmV1Client(private val context: Context) {
                     put("message", messageObj)
                 }
 
-                OutputStreamWriter(conn.outputStream, StandardCharsets.UTF_8).use { it.write(rootObj.toString()) }
+                val postBody = rootObj.toString()
+                Log.d(tag, "FCM data size: $dataSize bytes (type: ${payload.type}, callId: ${payload.callId})")
+
+                OutputStreamWriter(conn.outputStream, StandardCharsets.UTF_8).use { it.write(postBody) }
 
                 val responseCode = conn.responseCode
                 if (responseCode in 200..299) {
                     val responseStr = conn.inputStream.bufferedReader().use { it.readText() }
-                    Log.i(tag, "FCM v1 push sent successfully (HTTP $responseCode): $responseStr")
+                    Log.i(tag, "FCM v1 push sent successfully (HTTP $responseCode) for type=${payload.type}")
                     true
                 } else {
                     val err = conn.errorStream?.bufferedReader()?.use { it.readText() }
-                    Log.e(tag, "FCM v1 push failed (HTTP $responseCode): $err")
+                    Log.e(tag, "FCM v1 push failed (HTTP $responseCode) for type=${payload.type}: $err")
                     false
                 }
             } catch (e: Exception) {
@@ -209,6 +214,27 @@ class FcmV1Client(private val context: Context) {
                 false
             }
         }
+    }
+
+    private fun buildDataObject(payload: SignalingPayload): JSONObject {
+        return JSONObject().apply {
+            put("payload", gson.toJson(payload))
+            put("type", payload.type.name)
+            put("senderId", payload.senderId)
+            put("senderName", payload.senderName)
+            payload.callId?.let { put("callId", it) }
+            payload.callType?.let { put("callType", it.name) }
+        }
+    }
+
+    /** FCM counts the UTF-8 bytes of every data key and value towards its 4KB limit. */
+    private fun dataSizeBytes(dataObj: JSONObject): Int {
+        var size = 0
+        for (key in dataObj.keys()) {
+            size += key.toByteArray(StandardCharsets.UTF_8).size
+            size += dataObj.optString(key).toByteArray(StandardCharsets.UTF_8).size
+        }
+        return size
     }
 
     private fun base64Url(bytes: ByteArray): String {

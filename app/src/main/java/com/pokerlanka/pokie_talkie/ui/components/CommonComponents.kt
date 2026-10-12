@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Check
@@ -173,31 +174,38 @@ fun AvatarView(
 fun LanStatusBadge(
     isOnlineLan: Boolean,
     fcmToken: String = "",
+    bluetoothAddress: String? = null,
     modifier: Modifier = Modifier
 ) {
     val isCloudReady = !isOnlineLan && fcmToken.isNotBlank()
+    val isBtReady = !bluetoothAddress.isNullOrBlank()
     val lanColor = MaterialTheme.colorScheme.primary
     val cloudColor = MaterialTheme.colorScheme.tertiary
+    val btColor = androidx.compose.ui.graphics.Color(0xFF2979FF)
     val offlineColor = MaterialTheme.colorScheme.onSurfaceVariant
 
     val badgeBg = when {
         isOnlineLan -> lanColor.copy(alpha = 0.15f)
         isCloudReady -> cloudColor.copy(alpha = 0.15f)
+        isBtReady -> btColor.copy(alpha = 0.15f)
         else -> offlineColor.copy(alpha = 0.12f)
     }
     val badgeContentColor = when {
         isOnlineLan -> lanColor
         isCloudReady -> cloudColor
+        isBtReady -> btColor
         else -> offlineColor
     }
     val badgeIcon = when {
         isOnlineLan -> Icons.Default.Wifi
         isCloudReady -> Icons.Default.Cloud
+        isBtReady -> Icons.Default.Bluetooth
         else -> Icons.Default.CloudOff
     }
     val badgeText = when {
         isOnlineLan -> "LAN Active"
         isCloudReady -> "Cloud Ready"
+        isBtReady -> "Bluetooth Ready"
         else -> "Offline"
     }
 

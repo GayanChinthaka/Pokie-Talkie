@@ -1,7 +1,5 @@
 package com.pokerlanka.pokie_talkie.ui.call
 
-import android.app.KeyguardManager
-import android.content.Context
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
@@ -31,6 +29,7 @@ class IncomingCallActivity : ComponentActivity() {
                 webRtcManager = container.webRtcManager,
                 fcmSignalingClient = container.fcmSignalingClient,
                 telecomCallManager = container.telecomCallManager,
+                bluetoothVoiceManager = container.bluetoothVoiceManager,
                 ringtoneVibrationManager = container.ringtoneVibrationManager,
                 callController = container.callController
             )
@@ -69,6 +68,7 @@ class IncomingCallActivity : ComponentActivity() {
                     webRtcManager = container.webRtcManager,
                     fcmSignalingClient = container.fcmSignalingClient,
                     telecomCallManager = container.telecomCallManager,
+                    bluetoothVoiceManager = container.bluetoothVoiceManager,
                     ringtoneVibrationManager = container.ringtoneVibrationManager,
                     callController = container.callController
                 )

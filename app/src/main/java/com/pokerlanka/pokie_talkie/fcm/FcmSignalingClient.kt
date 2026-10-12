@@ -17,12 +17,14 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.firstOrNull
 import org.webrtc.SessionDescription
 import com.pokerlanka.pokie_talkie.lan.LanDiscoveryManager
+import com.pokerlanka.pokie_talkie.bluetooth.BluetoothTransportManager
 
 data class DispatchResult(val success: Boolean, val isLan: Boolean)
 
 class FcmSignalingClient(
     private val contactRepository: ContactRepository,
     private val lanSocketServer: LanSocketServer,
+    val bluetoothTransportManager: BluetoothTransportManager,
     private val userPreferencesManager: UserPreferencesManager,
     private val scope: CoroutineScope,
     private val myUserId: String,
@@ -32,6 +34,7 @@ class FcmSignalingClient(
     private val myUserName: String get() = userNameProvider()
     private val tag = "FcmSignalingClient"
     private val gson = Gson()
+    var onCallFallbackToBluetooth: ((callId: String) -> Unit)? = null
     var lanDiscoveryManager: LanDiscoveryManager? = null
 
     private fun createPayload(
@@ -45,7 +48,8 @@ class FcmSignalingClient(
         messageIds: List<String>? = null,
         messageContent: String? = null,
         messageType: MessageType? = null,
-        isCameraOn: Boolean? = null
+        isCameraOn: Boolean? = null,
+        isBluetoothVoice: Boolean = false
     ): SignalingPayload {
         val fcmToken = userPreferencesManager.getFcmToken().takeIf { it.isNotBlank() }
         val localIp = lanSocketServer.getLocalIpAddress()
@@ -63,6 +67,7 @@ class FcmSignalingClient(
             messageContent = messageContent,
             messageType = messageType,
             isCameraOn = isCameraOn,
+            isBluetoothVoice = isBluetoothVoice,
             senderFcmToken = fcmToken,
             senderIp = localIp,
             senderPort = lanSocketServer.serverPort
@@ -80,12 +85,34 @@ class FcmSignalingClient(
         dispatchPayload(targetId, payload)
     }
 
+    fun sendBluetoothCallOffer(targetId: String, callerName: String, callId: String) {
+        val payload = createPayload(
+            type = SignalingType.OFFER,
+            targetId = targetId,
+            callId = callId,
+            callType = CallType.VOICE,
+            isBluetoothVoice = true
+        ).copy(senderName = callerName.ifBlank { myUserName })
+        dispatchPayload(targetId, payload)
+    }
+
     fun sendCallAnswer(targetId: String, callId: String, sdp: SessionDescription) {
         val payload = createPayload(
             type = SignalingType.ANSWER,
             targetId = targetId,
             callId = callId,
             sdp = sdp.description
+        )
+        dispatchPayload(targetId, payload)
+    }
+
+    fun sendBluetoothCallAnswer(targetId: String, callId: String) {
+        val payload = createPayload(
+            type = SignalingType.ANSWER,
+            targetId = targetId,
+            callId = callId,
+            callType = CallType.VOICE,
+            isBluetoothVoice = true
         )
         dispatchPayload(targetId, payload)
     }
@@ -259,7 +286,7 @@ class FcmSignalingClient(
             if (contact == null || (contact.fcmToken.isBlank() && contact.ipAddress.isNotBlank())) {
                 val allContacts = contactRepository.getContacts().firstOrNull() ?: emptyList()
                 val targetIp = contact?.ipAddress ?: if (targetId.startsWith("lan_")) targetId.removePrefix("lan_").replace("_", ".") else ""
-                val match = allContacts.find { it.ipAddress == targetIp && it.fcmToken.isNotBlank() }
+                val match = if (targetIp.isBlank()) null else allContacts.find { it.ipAddress == targetIp && it.isOnlineLan && it.fcmToken.isNotBlank() }
                 if (match != null) {
                     Log.i(tag, "Mapped target $targetId to contact with FCM token: ${match.name} (${match.id})")
                     contact = match
@@ -295,8 +322,35 @@ class FcmSignalingClient(
                 }
             }
 
-            Log.w(tag, "Dispatch failed: Peer $targetId unreachable on LAN Wi-Fi and FCM")
-            return@withContext DispatchResult(success = false, isLan = false)
+            val canFallbackToBluetooth = when (payload.type) {
+                SignalingType.ICE_CANDIDATE,
+                SignalingType.RENEGOTIATION_OFFER,
+                SignalingType.RENEGOTIATION_ANSWER,
+                SignalingType.PROFILE_UPDATE,
+                SignalingType.PING,
+                SignalingType.PONG -> false
+                else -> true
+            }
+
+            if (!canFallbackToBluetooth) {
+                Log.w(tag, "Dispatch failed: Peer $targetId unreachable on LAN Wi-Fi and FCM; [${payload.type}] skips Bluetooth fallback")
+                return@withContext DispatchResult(success = false, isLan = false)
+            }
+
+            // Priority 3: Bluetooth RFCOMM Direct Proximity
+            Log.d(tag, "Attempting Priority 3 Bluetooth RFCOMM to $targetId (${contact?.name})")
+            val outboundPayload = if (payload.type == SignalingType.OFFER && !payload.isBluetoothVoice) {
+                Log.i(tag, "LAN and FCM failed for WebRTC offer. Falling back to Bluetooth Voice call offer for $targetId")
+                onCallFallbackToBluetooth?.invoke(payload.callId ?: "")
+                payload.copy(isBluetoothVoice = true, sdp = null, callType = CallType.VOICE)
+            } else {
+                payload
+            }
+            val btSuccess = bluetoothTransportManager.sendPayload(targetId, outboundPayload)
+            if (!btSuccess) {
+                Log.w(tag, "Dispatch failed: Peer $targetId unreachable on LAN Wi-Fi, FCM and Bluetooth")
+            }
+            return@withContext DispatchResult(success = btSuccess, isLan = false)
         }
     }
 

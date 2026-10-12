@@ -136,7 +136,8 @@ fun ChatScreen(
                             )
                             LanStatusBadge(
                                 isOnlineLan = contact?.isOnlineLan == true,
-                                fcmToken = contact?.fcmToken ?: ""
+                                fcmToken = contact?.fcmToken ?: "",
+                                bluetoothAddress = contact?.bluetoothAddress
                             )
                         }
                     }

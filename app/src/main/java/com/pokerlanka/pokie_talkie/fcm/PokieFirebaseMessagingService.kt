@@ -80,9 +80,15 @@ class PokieFirebaseMessagingService : FirebaseMessagingService() {
                 }
             }
 
-            if (payload != null && payload.isValid()) {
-                Log.i(tag, "Valid FCM payload received: [${payload.type}] from ${payload.senderName} (${payload.senderId})")
-                container.handleIncomingSignalingPayload(payload, "FCM")
+            val decompressedPayload = if (payload?.sdp != null && payload.sdp.startsWith("gz:")) {
+                payload.copy(sdp = SdpCompressor.decompress(payload.sdp))
+            } else {
+                payload
+            }
+
+            if (decompressedPayload != null && decompressedPayload.isValid()) {
+                Log.i(tag, "Valid FCM payload received: [${decompressedPayload.type}] from ${decompressedPayload.senderName} (${decompressedPayload.senderId})")
+                container.handleIncomingSignalingPayload(decompressedPayload, "FCM")
             } else {
                 Log.w(tag, "Invalid or dropped FCM payload: $payload")
             }

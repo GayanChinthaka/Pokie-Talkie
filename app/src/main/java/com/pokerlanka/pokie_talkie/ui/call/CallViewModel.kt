@@ -12,10 +12,16 @@ import com.pokerlanka.pokie_talkie.telecom.PokieConnectionService
 import com.pokerlanka.pokie_talkie.telecom.TelecomCallManager
 import com.pokerlanka.pokie_talkie.telecom.RingtoneVibrationManager
 import com.pokerlanka.pokie_talkie.webrtc.WebRtcManager
+import com.pokerlanka.pokie_talkie.bluetooth.BluetoothVoiceManager
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.webrtc.EglBase
 import org.webrtc.VideoTrack
@@ -28,6 +34,7 @@ class CallViewModel(
     val webRtcManager: WebRtcManager,
     private val fcmSignalingClient: FcmSignalingClient,
     private val telecomCallManager: TelecomCallManager,
+    val bluetoothVoiceManager: BluetoothVoiceManager,
     private val ringtoneVibrationManager: RingtoneVibrationManager,
     private val callController: CallController
 ) : ViewModel() {
@@ -35,17 +42,32 @@ class CallViewModel(
     val currentCall: StateFlow<CallSession?> = callRepository.currentCall
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    private val _btMuted = MutableStateFlow(false)
+    private val _btSpeakerOn = MutableStateFlow(false)
+
     val localVideoTrack: StateFlow<VideoTrack?> = webRtcManager.localVideoTrackFlow
     val remoteVideoTrack: StateFlow<VideoTrack?> = webRtcManager.remoteVideoTrackFlow
 
-    val isMuted: StateFlow<Boolean> = webRtcManager.isAudioMuted
+    val isMuted: StateFlow<Boolean> = combine(
+        webRtcManager.isAudioMuted,
+        _btMuted,
+        callRepository.currentCall
+    ) { webrtcMuted, btMuted, session ->
+        if (session?.isBluetoothVoice == true) btMuted else webrtcMuted
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val isVideoEnabled: StateFlow<Boolean> = webRtcManager.isVideoEnabled
     val isRemoteVideoEnabled: StateFlow<Boolean> = webRtcManager.isRemoteVideoEnabled
     val videoUpgradeRequest: StateFlow<String?> = callRepository.videoUpgradeRequest
     val uiMessage: SharedFlow<String> = callRepository.uiMessage
 
-    val isSpeakerOn: StateFlow<Boolean> = webRtcManager.isSpeakerOn
+    val isSpeakerOn: StateFlow<Boolean> = combine(
+        webRtcManager.isSpeakerOn,
+        _btSpeakerOn,
+        callRepository.currentCall
+    ) { webrtcSpeaker, btSpeaker, session ->
+        if (session?.isBluetoothVoice == true) btSpeaker else webrtcSpeaker
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val isCallConnected: StateFlow<Boolean> = webRtcManager.isCallConnected
 
@@ -76,32 +98,52 @@ class CallViewModel(
             return
         }
         ringtoneVibrationManager.stopAll()
-        val callType = session.callType
-        val activeConn = PokieConnectionService.activeConnection
-        if (activeConn != null) {
-            activeConn.onAnswer(0)
-        } else {
+        val isBt = session.isBluetoothVoice
+        if (isBt) {
             callRepository.updateCallState(CallState.CONNECTED)
-            com.pokerlanka.pokie_talkie.service.PokieLocalService.notifyCallStarted(telecomCallManager.context, isVideo = (callType == CallType.VIDEO))
-            webRtcManager.answerIncomingCall(callType)
+            PokieConnectionService.activeConnection?.setActive()
+            // Microphone foreground type, so AudioRecord keeps working when the app is backgrounded
+            com.pokerlanka.pokie_talkie.service.PokieLocalService.notifyCallStarted(telecomCallManager.context, isVideo = false)
+            fcmSignalingClient.sendBluetoothCallAnswer(session.peerId, session.callId)
+            bluetoothVoiceManager.startVoiceServer()
+        } else {
+            val callType = session.callType
+            val activeConn = PokieConnectionService.activeConnection
+            if (activeConn != null) {
+                activeConn.onAnswer(0)
+            } else {
+                callRepository.updateCallState(CallState.CONNECTED)
+                com.pokerlanka.pokie_talkie.service.PokieLocalService.notifyCallStarted(telecomCallManager.context, isVideo = (callType == CallType.VIDEO))
+                webRtcManager.answerIncomingCall(callType)
+            }
         }
         telecomCallManager.dismissIncomingCallUi()
     }
 
     fun toggleMute() {
-        webRtcManager.toggleAudioMute()
+        val session = callRepository.currentCall.value
+        if (session?.isBluetoothVoice == true) {
+            bluetoothVoiceManager.isMuted = !bluetoothVoiceManager.isMuted
+            _btMuted.value = bluetoothVoiceManager.isMuted
+        } else {
+            webRtcManager.toggleAudioMute()
+        }
     }
 
     fun toggleVideo() {
         val newVideo = webRtcManager.toggleVideo()
         val session = callRepository.currentCall.value
-        if (session != null) {
+        if (session != null && !session.isBluetoothVoice) {
             fcmSignalingClient.sendCameraState(session.peerId, session.callId, newVideo)
         }
     }
 
     fun requestSwitchToVideo() {
         val session = callRepository.currentCall.value ?: return
+        if (session.isBluetoothVoice) {
+            callRepository.emitMessage("Video calls require Wi-Fi LAN connection")
+            return
+        }
         fcmSignalingClient.sendSwitchToVideoRequest(session.peerId, session.callId)
         callRepository.emitMessage("Requesting video call...")
     }
@@ -124,7 +166,14 @@ class CallViewModel(
     }
 
     fun toggleSpeaker() {
-        webRtcManager.toggleSpeaker()
+        val session = callRepository.currentCall.value
+        if (session?.isBluetoothVoice == true) {
+            val nextSpeaker = !_btSpeakerOn.value
+            bluetoothVoiceManager.setSpeakerphone(nextSpeaker)
+            _btSpeakerOn.value = nextSpeaker
+        } else {
+            webRtcManager.toggleSpeaker()
+        }
     }
 
     fun switchCamera() {
@@ -146,6 +195,7 @@ class CallViewModel(
             webRtcManager: WebRtcManager,
             fcmSignalingClient: FcmSignalingClient,
             telecomCallManager: TelecomCallManager,
+            bluetoothVoiceManager: BluetoothVoiceManager,
             ringtoneVibrationManager: RingtoneVibrationManager,
             callController: CallController
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
@@ -156,6 +206,7 @@ class CallViewModel(
                     webRtcManager,
                     fcmSignalingClient,
                     telecomCallManager,
+                    bluetoothVoiceManager,
                     ringtoneVibrationManager,
                     callController
                 ) as T

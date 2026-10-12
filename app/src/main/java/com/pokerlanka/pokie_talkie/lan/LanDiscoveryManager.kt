@@ -164,6 +164,11 @@ class LanDiscoveryManager(
     private fun registerService() {
         if (registrationListener != null) return
 
+        val btManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
+        val btAdapter = btManager?.adapter
+        val btName = try { btAdapter?.name ?: "" } catch (e: Exception) { "" }
+        val btAddress = try { btAdapter?.address ?: "" } catch (e: Exception) { "" }
+
         val serviceInfo = NsdServiceInfo().apply {
             serviceName = "Pokie_${myUserId}"
             serviceType = this@LanDiscoveryManager.serviceType
@@ -171,6 +176,12 @@ class LanDiscoveryManager(
             setAttribute("userId", myUserId)
             setAttribute("userName", myUserName)
             setAttribute("version", "1.0")
+            if (btName.isNotBlank()) {
+                setAttribute("btName", btName)
+            }
+            if (btAddress.isNotBlank() && btAddress != "02:00:00:00:00:00") {
+                setAttribute("btAddress", btAddress)
+            }
             if (myFcmToken.isNotBlank()) {
                 setAttribute("fcmToken", myFcmToken)
             }
@@ -345,6 +356,8 @@ class LanDiscoveryManager(
         val peerUserId = getAttr("userId") ?: service.serviceName.removePrefix("Pokie_")
         val peerUserName = getAttr("userName") ?: service.serviceName
         val peerFcmToken = getAttr("fcmToken") ?: ""
+        val peerBtAddress = getAttr("btAddress") ?: ""
+        val peerBtName = getAttr("btName") ?: ""
 
         if (peerUserId == myUserId) return
 
@@ -354,11 +367,22 @@ class LanDiscoveryManager(
         userIdToServiceName[peerUserId] = service.serviceName
         knownServices[service.serviceName] = service
 
-        Log.i(tag, "Resolved peer $peerUserName ($peerUserId) at $ipAddress:$port (FCM: ${peerFcmToken.take(15)}...)")
+        Log.i(tag, "Resolved peer $peerUserName ($peerUserId) at $ipAddress:$port (FCM: ${peerFcmToken.take(15)}..., btAddress: $peerBtAddress, btName: $peerBtName)")
 
         scope.launch(Dispatchers.IO) {
             val byLan = contactRepository.getContact("lan_${ipAddress.replace(".", "_")}")
             val existing = contactRepository.getContact(peerUserId) ?: byLan
+            val btManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
+            val pairedMatch = try {
+                btManager?.adapter?.bondedDevices?.find { device ->
+                    val dName = try { device.name ?: "" } catch (e: Exception) { "" }
+                    dName.equals(peerUserName, ignoreCase = true) ||
+                    (peerBtName.isNotBlank() && dName.equals(peerBtName, ignoreCase = true))
+                }
+            } catch (e: SecurityException) {
+                null
+            }
+            val resolvedBt = peerBtAddress.ifBlank { pairedMatch?.address ?: existing?.bluetoothAddress ?: "" }
 
             val updatedPeer = Contact(
                 id = peerUserId,
@@ -366,7 +390,7 @@ class LanDiscoveryManager(
                 fcmToken = peerFcmToken.ifBlank { existing?.fcmToken ?: "" },
                 ipAddress = ipAddress,
                 port = port,
-                bluetoothAddress = existing?.bluetoothAddress ?: "",
+                bluetoothAddress = resolvedBt,
                 isOnlineLan = true,
                 lastSeenTimestamp = System.currentTimeMillis()
             )
@@ -378,6 +402,9 @@ class LanDiscoveryManager(
                 contactRepository.saveOrUpdateContact(updatedPeer)
             }
             contactRepository.updateLanStatus(peerUserId, true, ipAddress, port)
+            if (resolvedBt.isNotBlank()) {
+                contactRepository.updateBluetoothAddress(peerUserId, resolvedBt)
+            }
 
             val currentMap = _discoveredPeers.value.toMutableMap()
             currentMap[peerUserId] = updatedPeer

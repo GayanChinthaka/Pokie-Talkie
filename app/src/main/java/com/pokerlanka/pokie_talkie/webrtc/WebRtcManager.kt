@@ -282,10 +282,10 @@ class WebRtcManager(
         }
     }
 
-    fun createOffer() {
+    fun createOffer(callType: CallType = CallType.VOICE) {
         val constraints = MediaConstraints().apply {
             mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", if (callType == CallType.VIDEO) "true" else "false"))
         }
 
         peerConnection?.createOffer(object : SdpObserver {
@@ -381,7 +381,7 @@ class WebRtcManager(
         Log.i(tag, "startOutgoingCall initiated for $callType")
         startLocalMedia(callType)
         createPeerConnection()
-        createOffer()
+        createOffer(callType)
     }
 
     fun answerIncomingCall(callType: CallType) {

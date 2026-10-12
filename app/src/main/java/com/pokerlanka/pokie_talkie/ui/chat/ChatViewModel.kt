@@ -69,7 +69,8 @@ class ChatViewModel(
     }
 
     fun onInputTextChanged(newText: String) {
-        _inputText.value = newText
+        // Keep messages small enough for FCM's 4KB push limit when the peer is not on LAN
+        _inputText.value = newText.take(MAX_MESSAGE_LENGTH)
     }
 
     fun toggleStickerPicker() {
@@ -155,16 +156,23 @@ class ChatViewModel(
         }
         val peer = contact.value ?: return false
         val callId = UUID.randomUUID().toString()
+        // Bluetooth only when the peer is unreachable over LAN and FCM cloud signaling is unavailable
+        val canUseCloud = peer.fcmToken.isNotBlank() && connectivityMonitor.hasInternet()
+        val isBt = !canUseCloud &&
+            (!peer.isOnlineLan || connectivityMonitor.activeTransport.value == ActiveTransportMode.BLUETOOTH)
         telecomCallManager.startOutgoingCall(
             recipientId = peer.id,
             recipientName = peer.name,
-            callType = callType,
-            callId = callId
+            callType = if (isBt) CallType.VOICE else callType,
+            callId = callId,
+            isBluetoothVoice = isBt
         )
         return true
     }
 
     companion object {
+        private const val MAX_MESSAGE_LENGTH = 1000
+
         fun provideFactory(
             peerId: String,
             myUserId: String,

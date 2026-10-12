@@ -6,6 +6,7 @@ import android.telecom.CallAudioState
 import android.telecom.Connection
 import android.telecom.DisconnectCause
 import android.util.Log
+import com.pokerlanka.pokie_talkie.PokieApp
 import com.pokerlanka.pokie_talkie.data.model.CallState
 import com.pokerlanka.pokie_talkie.data.model.CallType
 import com.pokerlanka.pokie_talkie.data.repository.CallRepository
@@ -34,10 +35,25 @@ class PokieConnection(
 
     override fun onAnswer(videoState: Int) {
         Log.i(tag, "Telecom onAnswer called for call $callId")
+        val container = (context.applicationContext as PokieApp).appContainer
+        val session = callRepository.currentCall.value
+        if (session == null || session.callId != callId || session.state != CallState.RINGING_INCOMING) {
+            Log.w(tag, "Ignoring onAnswer: call $callId is not ringing (current=${session?.callId}, state=${session?.state})")
+            return
+        }
         setActive()
         callRepository.updateCallState(CallState.CONNECTED)
-        com.pokerlanka.pokie_talkie.service.PokieLocalService.notifyCallStarted(context, isVideo = (callType == CallType.VIDEO))
-        webRtcManager.answerIncomingCall(callType)
+        if (session.isBluetoothVoice) {
+            // Microphone foreground type, so AudioRecord keeps working when the app is backgrounded
+            com.pokerlanka.pokie_talkie.service.PokieLocalService.notifyCallStarted(context, isVideo = false)
+            container.fcmSignalingClient.sendBluetoothCallAnswer(session.peerId, session.callId)
+            container.bluetoothVoiceManager.startVoiceServer()
+        } else {
+            com.pokerlanka.pokie_talkie.service.PokieLocalService.notifyCallStarted(context, isVideo = (callType == CallType.VIDEO))
+            webRtcManager.answerIncomingCall(callType)
+        }
+        // Answering from a headset or watch skips CallViewModel, so stop the ring and close the incoming-call notification here
+        container.telecomCallManager.dismissIncomingCallUi()
     }
 
     override fun onReject() {
@@ -47,18 +63,26 @@ class PokieConnection(
 
     override fun onDisconnect() {
         Log.i(tag, "Telecom onDisconnect called for call $callId")
-        val currentCall = callRepository.currentCall.value
-        if (currentCall != null && currentCall.state == CallState.CONNECTED) {
-            callController.endCall(EndReason.LOCAL_HANGUP, notifyPeer = true, expectedCallId = callId)
-        } else {
-            Log.w(tag, "Telecom onDisconnect during non-connected state (${currentCall?.state}), ignoring to prevent premature hangup")
-            destroy()
-        }
+        // A hangup from a headset, car kit, watch or the system UI: end the call in any ringing or connected state
+        callController.endCall(EndReason.LOCAL_HANGUP, notifyPeer = true, expectedCallId = callId)
+        // endCall skips stale connections whose callId is no longer current, so make sure this one is released
+        release(DisconnectCause.LOCAL)
     }
 
     override fun onAbort() {
-        Log.w(tag, "Telecom onAbort called for call $callId (ignoring so app call stays active)")
-        destroy()
+        // Telecom aborted the connection (not a user action): keep the app call running, release only this connection
+        Log.w(tag, "Telecom onAbort called for call $callId (keeping app call active)")
+        release(DisconnectCause.CANCELED)
+    }
+
+    private fun release(cause: Int) {
+        if (state != STATE_DISCONNECTED) {
+            setDisconnected(DisconnectCause(cause))
+            destroy()
+        }
+        if (PokieConnectionService.activeConnection === this) {
+            PokieConnectionService.activeConnection = null
+        }
     }
 
     override fun onCallAudioStateChanged(state: CallAudioState?) {

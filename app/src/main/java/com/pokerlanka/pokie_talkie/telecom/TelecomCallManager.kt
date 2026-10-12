@@ -47,7 +47,7 @@ class TelecomCallManager(
         const val EXTRA_CALL_ID = "extra_call_id"
         const val EXTRA_CALL_TYPE = "extra_call_type"
 
-        const val CHANNEL_CALLS_ID = "pokie_incoming_calls_v3"
+        const val CHANNEL_CALLS_ID = "pokie_incoming_calls_v4"
         const val NOTIFICATION_CALL_ID = 9999
     }
 
@@ -56,6 +56,7 @@ class TelecomCallManager(
         PhoneAccountHandle(componentName, PHONE_ACCOUNT_ID)
     }
 
+    var onBluetoothCallInitiated: ((recipientId: String, recipientName: String, callId: String) -> Unit)? = null
 
     fun registerPhoneAccount() {
         try {
@@ -79,18 +80,18 @@ class TelecomCallManager(
         callerId: String,
         callerName: String,
         callType: CallType,
-        callId: String
+        callId: String,
+        isBluetoothVoice: Boolean = false
     ) {
-        Log.i(tag, "Reporting incoming call from $callerName ($callerId) [Type: $callType, ID: $callId]")
+        Log.i(tag, "Reporting incoming call from $callerName ($callerId) [Type: $callType, ID: $callId, isBt: $isBluetoothVoice]")
 
         val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
         val isScreenOffOrLocked = (keyguardManager?.isKeyguardLocked == true) || (powerManager?.isInteractive == false)
         val isForeground = com.pokerlanka.pokie_talkie.PokieApp.isAppInForeground
 
-        if (isForeground) {
-            ringtoneVibrationManager.startIncomingRing()
-        }
+        // Always start incoming ring and vibration regardless of whether app is in foreground
+        ringtoneVibrationManager.startIncomingRing()
 
         wakeUpScreen()
 
@@ -105,7 +106,12 @@ class TelecomCallManager(
                     putExtra(EXTRA_CALL_TYPE, callType.name)
                     putExtra(EXTRA_CALL_ID, callId)
                 }
-                context.startActivity(directIntent)
+                val launchOptions = if (Build.VERSION.SDK_INT >= 34) {
+                    android.app.ActivityOptions.makeBasic().setPendingIntentBackgroundActivityStartMode(
+                        android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                    ).toBundle()
+                } else null
+                context.startActivity(directIntent, launchOptions)
                 Log.i(tag, "Directly launched IncomingCallActivity")
             } catch (e: Exception) {
                 Log.w(tag, "Direct startActivity for incoming call failed: ${e.message}")
@@ -118,7 +124,8 @@ class TelecomCallManager(
             peerName = callerName,
             callType = callType,
             isIncoming = true,
-            state = CallState.RINGING_INCOMING
+            state = CallState.RINGING_INCOMING,
+            isBluetoothVoice = isBluetoothVoice
         )
         callRepository.setCallSession(session)
 
@@ -158,8 +165,9 @@ class TelecomCallManager(
     private fun wakeUpScreen() {
         try {
             val powerManager = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            @Suppress("DEPRECATION")
             val wakeLock = powerManager?.newWakeLock(
-                android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                android.os.PowerManager.FULL_WAKE_LOCK or
                 android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP or
                 android.os.PowerManager.ON_AFTER_RELEASE,
                 "pokie_talkie:incoming_call_wake"
@@ -174,7 +182,8 @@ class TelecomCallManager(
         recipientId: String,
         recipientName: String,
         callType: CallType,
-        callId: String
+        callId: String,
+        isBluetoothVoice: Boolean = false
     ): Boolean {
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED ||
             (callType == CallType.VIDEO && ActivityCompat.checkSelfPermission(context, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)) {
@@ -183,7 +192,7 @@ class TelecomCallManager(
             return false
         }
 
-        Log.i(tag, "Starting outgoing call to $recipientName ($recipientId)")
+        Log.i(tag, "Starting outgoing call to $recipientName ($recipientId), isBt: $isBluetoothVoice")
 
         val session = CallSession(
             callId = callId,
@@ -191,18 +200,25 @@ class TelecomCallManager(
             peerName = recipientName,
             callType = callType,
             isIncoming = false,
-            state = CallState.RINGING_OUTGOING
+            state = CallState.RINGING_OUTGOING,
+            isBluetoothVoice = isBluetoothVoice
         )
-        PokieLocalService.notifyCallStarted(context, isVideo = (callType == CallType.VIDEO))
+        PokieLocalService.notifyCallStarted(context, isVideo = (callType == CallType.VIDEO && !isBluetoothVoice))
         callRepository.setCallSession(session)
         ringtoneVibrationManager.startRingbackTone()
 
-        // Initialize WebRTC pipeline directly for immediate local media capture and Offer creation
-        try {
-            webRtcManager.startOutgoingCall(callType)
-            Log.i(tag, "Direct WebRTC outgoing media & offer pipeline initialized for $callType")
-        } catch (e: Exception) {
-            Log.e(tag, "Error starting outgoing WebRTC media pipeline: ${e.message}", e)
+        if (!isBluetoothVoice) {
+            // Initialize WebRTC pipeline directly for immediate local media capture and Offer creation
+            try {
+                webRtcManager.startOutgoingCall(callType)
+                Log.i(tag, "Direct WebRTC outgoing media & offer pipeline initialized for $callType")
+            } catch (e: Exception) {
+                Log.e(tag, "Error starting outgoing WebRTC media pipeline: ${e.message}", e)
+            }
+        } else {
+            // Bluetooth voice call: trigger direct Bluetooth call offer without WebRTC
+            Log.i(tag, "Triggering Bluetooth voice call offer to $recipientId")
+            onBluetoothCallInitiated?.invoke(recipientId, recipientName, callId)
         }
 
         val outgoingExtras = Bundle().apply {
@@ -245,11 +261,20 @@ class TelecomCallManager(
             putExtra(EXTRA_CALL_ID, callId)
         }
 
+        val activityOptionsBundle = if (Build.VERSION.SDK_INT >= 34) {
+            android.app.ActivityOptions.makeBasic().setPendingIntentBackgroundActivityStartMode(
+                android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+            ).toBundle()
+        } else {
+            null
+        }
+
         val pendingFullscreenIntent = PendingIntent.getActivity(
             context,
             101,
             fullscreenIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            activityOptionsBundle
         )
 
         // Decline Action PendingIntent
@@ -278,7 +303,8 @@ class TelecomCallManager(
             context,
             103,
             answerIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            activityOptionsBundle
         )
 
         val builder = NotificationCompat.Builder(context, CHANNEL_CALLS_ID)
@@ -291,8 +317,6 @@ class TelecomCallManager(
             .setAutoCancel(false)
             .setOngoing(true)
             .setContentIntent(pendingFullscreenIntent)
-            .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))
-            .setVibrate(longArrayOf(0, 1000, 1000, 1000))
             .addAction(R.drawable.ic_launcher_foreground, "Decline", declinePendingIntent)
             .addAction(R.drawable.ic_launcher_foreground, "Answer", answerPendingIntent)
 
