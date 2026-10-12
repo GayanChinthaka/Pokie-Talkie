@@ -47,7 +47,7 @@ class TelecomCallManager(
         const val EXTRA_CALL_ID = "extra_call_id"
         const val EXTRA_CALL_TYPE = "extra_call_type"
 
-        const val CHANNEL_CALLS_ID = "pokie_incoming_calls_v2"
+        const val CHANNEL_CALLS_ID = "pokie_incoming_calls_v3"
         const val NOTIFICATION_CALL_ID = 9999
     }
 
@@ -88,7 +88,9 @@ class TelecomCallManager(
         val isScreenOffOrLocked = (keyguardManager?.isKeyguardLocked == true) || (powerManager?.isInteractive == false)
         val isForeground = com.pokerlanka.pokie_talkie.PokieApp.isAppInForeground
 
-        ringtoneVibrationManager.startIncomingRing()
+        if (isForeground) {
+            ringtoneVibrationManager.startIncomingRing()
+        }
 
         wakeUpScreen()
 
@@ -289,6 +291,8 @@ class TelecomCallManager(
             .setAutoCancel(false)
             .setOngoing(true)
             .setContentIntent(pendingFullscreenIntent)
+            .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))
+            .setVibrate(longArrayOf(0, 1000, 1000, 1000))
             .addAction(R.drawable.ic_launcher_foreground, "Decline", declinePendingIntent)
             .addAction(R.drawable.ic_launcher_foreground, "Answer", answerPendingIntent)
 

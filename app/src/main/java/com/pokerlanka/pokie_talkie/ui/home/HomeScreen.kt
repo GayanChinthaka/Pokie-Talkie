@@ -460,7 +460,8 @@ fun ContactItemCard(
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     LanStatusBadge(
-                        isOnlineLan = contact.isOnlineLan
+                        isOnlineLan = contact.isOnlineLan,
+                        fcmToken = contact.fcmToken
                     )
                     if (contact.isOnlineLan && contact.ipAddress.isNotBlank()) {
                         Spacer(modifier = Modifier.width(6.dp))

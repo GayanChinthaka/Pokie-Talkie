@@ -135,7 +135,8 @@ fun ChatScreen(
                                 style = MaterialTheme.typography.titleMedium
                             )
                             LanStatusBadge(
-                                isOnlineLan = contact?.isOnlineLan == true
+                                isOnlineLan = contact?.isOnlineLan == true,
+                                fcmToken = contact?.fcmToken ?: ""
                             )
                         }
                     }

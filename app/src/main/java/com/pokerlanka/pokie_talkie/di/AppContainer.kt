@@ -463,7 +463,6 @@ class AppContainer(val context: Context) {
 
                 applicationScope.launch(Dispatchers.IO) {
                     val existingContact = contactRepository.getContact(payload.senderId)
-                    val isLan = (source == "LAN")
                     val contactIp = if (isLan && !payload.sourceIp.isNullOrBlank()) payload.sourceIp!! else ""
 
                     if (existingContact == null) {
@@ -710,15 +709,22 @@ class AppContainer(val context: Context) {
                 Log.w(tag, "Failed to delete old notification channels: ${e.message}")
             }
 
-            // Incoming Calls Channel (Silent channel - ringtoneVibrationManager plays ringtone & vibration per prefs)
+            val ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+            val audioAttributes = AudioAttributes.Builder()
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                .build()
+
+            // Incoming Calls Channel (Full audio & vibration attributes for heads-up and fullScreenIntent)
             val callsChannel = NotificationChannel(
                 TelecomCallManager.CHANNEL_CALLS_ID,
                 context.getString(R.string.channel_calls_name),
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = context.getString(R.string.channel_calls_desc)
-                setSound(null, null)
-                enableVibration(false)
+                setSound(ringtoneUri, audioAttributes)
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 1000, 1000, 1000)
                 lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
             }
 

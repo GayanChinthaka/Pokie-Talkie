@@ -47,12 +47,18 @@ class PokieConnection(
 
     override fun onDisconnect() {
         Log.i(tag, "Telecom onDisconnect called for call $callId")
-        callController.endCall(EndReason.LOCAL_HANGUP, notifyPeer = true, expectedCallId = callId)
+        val currentCall = callRepository.currentCall.value
+        if (currentCall != null && currentCall.state == CallState.CONNECTED) {
+            callController.endCall(EndReason.LOCAL_HANGUP, notifyPeer = true, expectedCallId = callId)
+        } else {
+            Log.w(tag, "Telecom onDisconnect during non-connected state (${currentCall?.state}), ignoring to prevent premature hangup")
+            destroy()
+        }
     }
 
     override fun onAbort() {
-        Log.i(tag, "Telecom onAbort called for call $callId")
-        callController.endCall(EndReason.LOCAL_HANGUP, notifyPeer = true, expectedCallId = callId)
+        Log.w(tag, "Telecom onAbort called for call $callId (ignoring so app call stays active)")
+        destroy()
     }
 
     override fun onCallAudioStateChanged(state: CallAudioState?) {

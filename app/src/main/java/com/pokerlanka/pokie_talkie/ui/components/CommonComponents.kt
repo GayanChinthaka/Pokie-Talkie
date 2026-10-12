@@ -172,13 +172,34 @@ fun AvatarView(
 @Composable
 fun LanStatusBadge(
     isOnlineLan: Boolean,
+    fcmToken: String = "",
     modifier: Modifier = Modifier
 ) {
+    val isCloudReady = !isOnlineLan && fcmToken.isNotBlank()
     val lanColor = MaterialTheme.colorScheme.primary
-    val badgeBg = if (isOnlineLan) lanColor.copy(alpha = 0.15f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f)
-    val badgeContentColor = if (isOnlineLan) lanColor else MaterialTheme.colorScheme.onSurfaceVariant
-    val badgeIcon = if (isOnlineLan) Icons.Default.Wifi else Icons.Default.Sensors
-    val badgeText = if (isOnlineLan) "LAN Active" else "Cloud / Offline"
+    val cloudColor = MaterialTheme.colorScheme.tertiary
+    val offlineColor = MaterialTheme.colorScheme.onSurfaceVariant
+
+    val badgeBg = when {
+        isOnlineLan -> lanColor.copy(alpha = 0.15f)
+        isCloudReady -> cloudColor.copy(alpha = 0.15f)
+        else -> offlineColor.copy(alpha = 0.12f)
+    }
+    val badgeContentColor = when {
+        isOnlineLan -> lanColor
+        isCloudReady -> cloudColor
+        else -> offlineColor
+    }
+    val badgeIcon = when {
+        isOnlineLan -> Icons.Default.Wifi
+        isCloudReady -> Icons.Default.Cloud
+        else -> Icons.Default.CloudOff
+    }
+    val badgeText = when {
+        isOnlineLan -> "LAN Active"
+        isCloudReady -> "Cloud Ready"
+        else -> "Offline"
+    }
 
     Surface(
         modifier = modifier,

@@ -238,7 +238,7 @@ class FcmSignalingClient(
         val payload = createPayload(
             type = SignalingType.PROFILE_UPDATE,
             targetId = ""
-        )
+        ).copy(senderName = newName)
         scope.launch(Dispatchers.IO) {
             val contacts = contactRepository.getContacts().firstOrNull() ?: emptyList()
             for (c in contacts) {
@@ -253,7 +253,19 @@ class FcmSignalingClient(
 
     suspend fun dispatchPayloadSync(targetId: String, payload: SignalingPayload): DispatchResult {
         return withContext(Dispatchers.IO) {
-            val contact = contactRepository.getContact(targetId)
+            var contact = contactRepository.getContact(targetId)
+
+            // If contact is missing or has blank fcmToken (e.g. manual lan_ contact), check if another record has this IP and an FCM token
+            if (contact == null || (contact.fcmToken.isBlank() && contact.ipAddress.isNotBlank())) {
+                val allContacts = contactRepository.getContacts().firstOrNull() ?: emptyList()
+                val targetIp = contact?.ipAddress ?: if (targetId.startsWith("lan_")) targetId.removePrefix("lan_").replace("_", ".") else ""
+                val match = allContacts.find { it.ipAddress == targetIp && it.fcmToken.isNotBlank() }
+                if (match != null) {
+                    Log.i(tag, "Mapped target $targetId to contact with FCM token: ${match.name} (${match.id})")
+                    contact = match
+                }
+            }
+
             // Priority 1: Direct Local LAN Wi-Fi Socket
             if (contact != null && contact.isOnlineLan && contact.ipAddress.isNotBlank()) {
                 Log.d(tag, "Attempting Priority 1 direct LAN dispatch to ${contact.name} at ${contact.ipAddress}:${contact.port}")
@@ -272,10 +284,10 @@ class FcmSignalingClient(
             if (payload.type != SignalingType.PING && payload.type != SignalingType.PONG) {
                 val fcmToken = contact?.fcmToken
                 if (!fcmToken.isNullOrBlank() && fcmV1Client?.isConfigured() == true) {
-                    Log.d(tag, "Attempting Priority 2 FCM Cloud Push to ${contact.name} ($targetId) token: ${fcmToken.take(15)}...")
+                    Log.d(tag, "Attempting Priority 2 FCM Cloud Push to ${contact?.name} ($targetId) token: ${fcmToken.take(15)}...")
                     val fcmSuccess = fcmV1Client?.sendPush(fcmToken, payload) == true
                     if (fcmSuccess) {
-                        Log.i(tag, "FCM Cloud push dispatched successfully to ${contact.name}")
+                        Log.i(tag, "FCM Cloud push dispatched successfully to ${contact?.name}")
                         return@withContext DispatchResult(success = true, isLan = false)
                     } else {
                         Log.w(tag, "FCM Cloud push failed to $targetId")

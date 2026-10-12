@@ -357,11 +357,12 @@ class LanDiscoveryManager(
         Log.i(tag, "Resolved peer $peerUserName ($peerUserId) at $ipAddress:$port (FCM: ${peerFcmToken.take(15)}...)")
 
         scope.launch(Dispatchers.IO) {
-            val existing = contactRepository.getContact(peerUserId)
+            val byLan = contactRepository.getContact("lan_${ipAddress.replace(".", "_")}")
+            val existing = contactRepository.getContact(peerUserId) ?: byLan
 
             val updatedPeer = Contact(
                 id = peerUserId,
-                name = peerUserName,
+                name = peerUserName.ifBlank { existing?.name ?: service.serviceName },
                 fcmToken = peerFcmToken.ifBlank { existing?.fcmToken ?: "" },
                 ipAddress = ipAddress,
                 port = port,
@@ -370,12 +371,17 @@ class LanDiscoveryManager(
                 lastSeenTimestamp = System.currentTimeMillis()
             )
 
+            if (byLan != null && byLan.id != peerUserId) {
+                Log.i(tag, "Merging manual LAN contact ${byLan.id} into resolved peer $peerUserId")
+                contactRepository.mergeContactAndMigrateMessages(byLan.id, updatedPeer)
+            } else {
+                contactRepository.saveOrUpdateContact(updatedPeer)
+            }
+            contactRepository.updateLanStatus(peerUserId, true, ipAddress, port)
+
             val currentMap = _discoveredPeers.value.toMutableMap()
             currentMap[peerUserId] = updatedPeer
             _discoveredPeers.value = currentMap
-
-            contactRepository.saveOrUpdateContact(updatedPeer)
-            contactRepository.updateLanStatus(peerUserId, true, ipAddress, port)
 
             onPeerDiscovered?.invoke(updatedPeer)
         }
