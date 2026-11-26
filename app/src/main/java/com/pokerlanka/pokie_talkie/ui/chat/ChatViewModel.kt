@@ -7,6 +7,8 @@ import androidx.core.app.ActivityCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.pokerlanka.pokie_talkie.data.local.ConnectionMode
+import com.pokerlanka.pokie_talkie.data.local.UserPreferencesManager
 import com.pokerlanka.pokie_talkie.data.model.CallType
 import com.pokerlanka.pokie_talkie.data.model.Contact
 import com.pokerlanka.pokie_talkie.data.model.Message
@@ -43,9 +45,12 @@ class ChatViewModel(
     private val fcmSignalingClient: FcmSignalingClient,
     private val telecomCallManager: TelecomCallManager,
     private val connectivityMonitor: ConnectivityMonitor,
+    private val userPreferencesManager: UserPreferencesManager,
     // Sends must outlive the screen, or leaving the chat strands the message in SENDING
     private val appScope: CoroutineScope
 ) : ViewModel() {
+
+    val connectionMode: StateFlow<ConnectionMode> = userPreferencesManager.connectionModeFlow
 
     private val _inputText = MutableStateFlow("")
     val inputText: StateFlow<String> = _inputText.asStateFlow()
@@ -149,6 +154,11 @@ class ChatViewModel(
 
     fun initiateCall(callType: CallType): Boolean {
         val ctx = telecomCallManager.context
+        val isBtMode = userPreferencesManager.getConnectionMode() == ConnectionMode.BLUETOOTH
+        if (isBtMode && callType == CallType.VIDEO) {
+            Toast.makeText(ctx, "Video calls require Wi-Fi mode", Toast.LENGTH_SHORT).show()
+            return false
+        }
         if (ActivityCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED ||
             (callType == CallType.VIDEO && ActivityCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)) {
             Toast.makeText(ctx, "Microphone and Camera permissions are required to make calls", Toast.LENGTH_LONG).show()
@@ -156,16 +166,12 @@ class ChatViewModel(
         }
         val peer = contact.value ?: return false
         val callId = UUID.randomUUID().toString()
-        // Bluetooth only when the peer is unreachable over LAN and FCM cloud signaling is unavailable
-        val canUseCloud = peer.fcmToken.isNotBlank() && connectivityMonitor.hasInternet()
-        val isBt = !canUseCloud &&
-            (!peer.isOnlineLan || connectivityMonitor.activeTransport.value == ActiveTransportMode.BLUETOOTH)
         telecomCallManager.startOutgoingCall(
             recipientId = peer.id,
             recipientName = peer.name,
-            callType = if (isBt) CallType.VOICE else callType,
+            callType = if (isBtMode) CallType.VOICE else callType,
             callId = callId,
-            isBluetoothVoice = isBt
+            isBluetoothVoice = isBtMode
         )
         return true
     }
@@ -181,11 +187,22 @@ class ChatViewModel(
             fcmSignalingClient: FcmSignalingClient,
             telecomCallManager: TelecomCallManager,
             connectivityMonitor: ConnectivityMonitor,
+            userPreferencesManager: UserPreferencesManager,
             appScope: CoroutineScope
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return ChatViewModel(peerId, myUserId, chatRepository, contactRepository, fcmSignalingClient, telecomCallManager, connectivityMonitor, appScope) as T
+                return ChatViewModel(
+                    peerId,
+                    myUserId,
+                    chatRepository,
+                    contactRepository,
+                    fcmSignalingClient,
+                    telecomCallManager,
+                    connectivityMonitor,
+                    userPreferencesManager,
+                    appScope
+                ) as T
             }
         }
     }

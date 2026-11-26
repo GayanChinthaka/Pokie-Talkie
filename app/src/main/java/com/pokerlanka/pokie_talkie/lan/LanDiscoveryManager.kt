@@ -74,6 +74,7 @@ class LanDiscoveryManager(
     }
 
     fun startDiscoveryAndRegistration() {
+        startResolveWorker()
         acquireMulticastLock()
         registerService()
         startDiscovery()

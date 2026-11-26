@@ -7,10 +7,11 @@ import androidx.core.app.ActivityCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.pokerlanka.pokie_talkie.data.local.ConnectionMode
 import com.pokerlanka.pokie_talkie.data.model.CallType
 import com.pokerlanka.pokie_talkie.data.model.Contact
-import com.pokerlanka.pokie_talkie.data.repository.ContactRepository
-import com.pokerlanka.pokie_talkie.telecom.TelecomCallManager
+import com.pokerlanka.pokie_talkie.di.AppContainer
+import com.pokerlanka.pokie_talkie.lan.ActiveTransportMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -20,10 +21,6 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
 
-import com.pokerlanka.pokie_talkie.lan.ActiveTransportMode
-import com.pokerlanka.pokie_talkie.data.local.UserPreferencesManager
-import com.pokerlanka.pokie_talkie.di.AppContainer
-
 data class HomeUiState(
     val contacts: List<Contact> = emptyList(),
     val unreadCounts: Map<String, Int> = emptyMap(),
@@ -31,6 +28,7 @@ data class HomeUiState(
     val myDeviceName: String = "",
     val myUserId: String = "",
     val activeTransport: ActiveTransportMode = ActiveTransportMode.WIFI,
+    val connectionMode: ConnectionMode = ConnectionMode.WIFI,
     val isScanningLan: Boolean = true,
     val showEditProfileDialog: Boolean = false,
     val showAddContactDialog: Boolean = false
@@ -61,7 +59,11 @@ class HomeViewModel(
     }
 
     private val dialogsFlow = combine(_showEditProfileDialog, _showAddContactDialog) { edit, add -> Pair(edit, add) }
-    private val userAndTransportFlow = combine(userPrefs.userNameFlow, appContainer.connectivityMonitor.activeTransport) { name, transport -> Pair(name, transport) }
+    private val userAndTransportFlow = combine(
+        userPrefs.userNameFlow,
+        appContainer.connectivityMonitor.activeTransport,
+        userPrefs.connectionModeFlow
+    ) { name, transport, mode -> Triple(name, transport, mode) }
 
     val uiState: StateFlow<HomeUiState> = combine(
         contactRepository.getContacts(),
@@ -72,6 +74,7 @@ class HomeViewModel(
     ) { contacts, unreadMap, query, userAndTransport, dialogs ->
         val userName = userAndTransport.first
         val transport = userAndTransport.second
+        val mode = userAndTransport.third
         val filtered = if (query.isBlank()) {
             contacts
         } else {
@@ -84,6 +87,7 @@ class HomeViewModel(
             myDeviceName = userName,
             myUserId = userPrefs.userId,
             activeTransport = transport,
+            connectionMode = mode,
             isScanningLan = true,
             showEditProfileDialog = dialogs.first,
             showAddContactDialog = dialogs.second
@@ -94,9 +98,42 @@ class HomeViewModel(
         initialValue = HomeUiState(
             myDeviceName = userPrefs.getUserName(),
             myUserId = userPrefs.userId,
-            activeTransport = appContainer.connectivityMonitor.activeTransport.value
+            activeTransport = appContainer.connectivityMonitor.activeTransport.value,
+            connectionMode = userPrefs.getConnectionMode()
         )
     )
+
+    fun toggleConnectionMode() {
+        val nextMode = if (userPrefs.getConnectionMode() == ConnectionMode.WIFI) {
+            ConnectionMode.BLUETOOTH
+        } else {
+            ConnectionMode.WIFI
+        }
+        appContainer.setConnectionMode(nextMode)
+
+        val ctx = appContainer.context
+        val message = when (nextMode) {
+            ConnectionMode.WIFI -> {
+                val transport = appContainer.connectivityMonitor.activeTransport.value
+                val hasNet = transport == ActiveTransportMode.WIFI ||
+                    transport == ActiveTransportMode.WIFI_DIRECT ||
+                    appContainer.connectivityMonitor.hasInternet()
+                if (hasNet) {
+                    "Switched to Wi-Fi Mode"
+                } else {
+                    "Wi-Fi Mode (Turn on Wi-Fi or Internet)"
+                }
+            }
+            ConnectionMode.BLUETOOTH -> {
+                if (appContainer.bluetoothTransportManager.isBluetoothEnabled) {
+                    "Switched to Bluetooth Mode"
+                } else {
+                    "Bluetooth Mode (Turn on Bluetooth)"
+                }
+            }
+        }
+        Toast.makeText(ctx, message, Toast.LENGTH_SHORT).show()
+    }
 
     fun onSearchQueryChanged(query: String) {
         _searchQuery.value = query
@@ -138,22 +175,23 @@ class HomeViewModel(
 
     fun initiateCall(contact: Contact, callType: CallType): Boolean {
         val ctx = appContainer.context
+        val isBtMode = userPrefs.getConnectionMode() == ConnectionMode.BLUETOOTH
+        if (isBtMode && callType == CallType.VIDEO) {
+            Toast.makeText(ctx, "Video calls require Wi-Fi mode", Toast.LENGTH_SHORT).show()
+            return false
+        }
         if (ActivityCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED ||
             (callType == CallType.VIDEO && ActivityCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)) {
             Toast.makeText(ctx, "Microphone and Camera permissions are required to make calls", Toast.LENGTH_LONG).show()
             return false
         }
         val callId = UUID.randomUUID().toString()
-        // Bluetooth only when the peer is unreachable over LAN and FCM cloud signaling is unavailable
-        val canUseCloud = contact.fcmToken.isNotBlank() && appContainer.connectivityMonitor.hasInternet()
-        val isBt = !canUseCloud &&
-            (!contact.isOnlineLan || appContainer.connectivityMonitor.activeTransport.value == ActiveTransportMode.BLUETOOTH)
         return telecomCallManager.startOutgoingCall(
             recipientId = contact.id,
             recipientName = contact.name,
-            callType = if (isBt) CallType.VOICE else callType,
+            callType = if (isBtMode) CallType.VOICE else callType,
             callId = callId,
-            isBluetoothVoice = isBt
+            isBluetoothVoice = isBtMode
         )
     }
 

@@ -2,6 +2,7 @@ package com.pokerlanka.pokie_talkie.fcm
 
 import android.util.Log
 import com.google.gson.Gson
+import com.pokerlanka.pokie_talkie.data.local.ConnectionMode
 import com.pokerlanka.pokie_talkie.data.local.UserPreferencesManager
 import com.pokerlanka.pokie_talkie.data.model.CallType
 import com.pokerlanka.pokie_talkie.data.model.IceCandidateModel
@@ -294,6 +295,7 @@ class FcmSignalingClient(
 
     suspend fun dispatchPayloadSync(targetId: String, payload: SignalingPayload): DispatchResult {
         return withContext(Dispatchers.IO) {
+            val connectionMode = userPreferencesManager.getConnectionMode()
             var contact = contactRepository.getContact(targetId)
 
             // If contact is missing or has blank fcmToken (e.g. manual lan_ contact), check if another record has this IP and an FCM token
@@ -307,54 +309,58 @@ class FcmSignalingClient(
                 }
             }
 
-            // Priority 1: Direct Local LAN Wi-Fi Socket
-            if (contact != null && contact.isOnlineLan && contact.ipAddress.isNotBlank()) {
-                Log.d(tag, "Attempting Priority 1 direct LAN dispatch to ${contact.name} at ${contact.ipAddress}:${contact.port}")
-                val lanSuccess = lanSocketServer.sendPayload(contact.ipAddress, contact.port, payload)
-                if (!lanSuccess) {
-                    Log.w(tag, "LAN direct socket to ${contact.ipAddress}:${contact.port} failed. Marking contact ${contact.id} as offline on LAN and re-resolving.")
-                    contactRepository.updateLanOnlineStatusOnly(contact.id, false)
-                    lanDiscoveryManager?.reResolvePeer(contact.id)
-                } else {
-                    return@withContext DispatchResult(success = true, isLan = true)
-                }
-            }
-
-            // Priority 2: FCM Cloud Push (High priority remote wake-up)
-            // Skip FCM push for local PING/PONG messages
-            if (payload.type != SignalingType.PING && payload.type != SignalingType.PONG) {
-                val fcmToken = contact?.fcmToken
-                if (!fcmToken.isNullOrBlank() && fcmV1Client?.isConfigured() == true) {
-                    Log.d(tag, "Attempting Priority 2 FCM Cloud Push to ${contact?.name} ($targetId) token: ${fcmToken.take(15)}...")
-                    val fcmSuccess = fcmV1Client?.sendPush(fcmToken, payload) == true
-                    if (fcmSuccess) {
-                        Log.i(tag, "FCM Cloud push dispatched successfully to ${contact?.name}")
-                        return@withContext DispatchResult(success = true, isLan = false)
+            if (connectionMode == ConnectionMode.WIFI) {
+                // Priority 1: Direct Local LAN Wi-Fi Socket
+                if (contact != null && contact.isOnlineLan && contact.ipAddress.isNotBlank()) {
+                    Log.d(tag, "Attempting Priority 1 direct LAN dispatch to ${contact.name} at ${contact.ipAddress}:${contact.port}")
+                    val lanSuccess = lanSocketServer.sendPayload(contact.ipAddress, contact.port, payload)
+                    if (!lanSuccess) {
+                        Log.w(tag, "LAN direct socket to ${contact.ipAddress}:${contact.port} failed. Marking contact ${contact.id} as offline on LAN and re-resolving.")
+                        contactRepository.updateLanOnlineStatusOnly(contact.id, false)
+                        lanDiscoveryManager?.reResolvePeer(contact.id)
                     } else {
-                        Log.w(tag, "FCM Cloud push failed to $targetId")
+                        return@withContext DispatchResult(success = true, isLan = true)
                     }
                 }
+
+                // Priority 2: FCM Cloud Push (High priority remote wake-up)
+                // Skip FCM push for local PING/PONG messages
+                if (payload.type != SignalingType.PING && payload.type != SignalingType.PONG) {
+                    val fcmToken = contact?.fcmToken
+                    if (!fcmToken.isNullOrBlank() && fcmV1Client?.isConfigured() == true) {
+                        Log.d(tag, "Attempting Priority 2 FCM Cloud Push to ${contact?.name} ($targetId) token: ${fcmToken.take(15)}...")
+                        val fcmSuccess = fcmV1Client?.sendPush(fcmToken, payload) == true
+                        if (fcmSuccess) {
+                            Log.i(tag, "FCM Cloud push dispatched successfully to ${contact?.name}")
+                            return@withContext DispatchResult(success = true, isLan = false)
+                        } else {
+                            Log.w(tag, "FCM Cloud push failed to $targetId")
+                        }
+                    }
+                }
+
+                Log.w(tag, "Wi-Fi mode active: skipping Bluetooth fallback for [${payload.type}] to $targetId")
+                return@withContext DispatchResult(success = false, isLan = false)
             }
 
-            val canFallbackToBluetooth = when (payload.type) {
+            // ConnectionMode.BLUETOOTH: strictly Bluetooth RFCOMM only
+            val canSendViaBluetooth = when (payload.type) {
                 SignalingType.ICE_CANDIDATE,
                 SignalingType.RENEGOTIATION_OFFER,
                 SignalingType.RENEGOTIATION_ANSWER,
-                SignalingType.PROFILE_UPDATE,
-                SignalingType.PING,
-                SignalingType.PONG -> false
+                SignalingType.PROFILE_UPDATE -> false
                 else -> true
             }
 
-            if (!canFallbackToBluetooth) {
-                Log.w(tag, "Dispatch failed: Peer $targetId unreachable on LAN Wi-Fi and FCM; [${payload.type}] skips Bluetooth fallback")
+            if (!canSendViaBluetooth) {
+                Log.w(tag, "Bluetooth mode active: [${payload.type}] is not applicable for Bluetooth RFCOMM")
                 return@withContext DispatchResult(success = false, isLan = false)
             }
 
             // Priority 3: Bluetooth RFCOMM Direct Proximity
-            Log.d(tag, "Attempting Priority 3 Bluetooth RFCOMM to $targetId (${contact?.name})")
+            Log.d(tag, "Attempting Bluetooth RFCOMM to $targetId (${contact?.name})")
             val outboundPayload = if (payload.type == SignalingType.OFFER && !payload.isBluetoothVoice) {
-                Log.i(tag, "LAN and FCM failed for WebRTC offer. Falling back to Bluetooth Voice call offer for $targetId")
+                Log.i(tag, "Bluetooth mode active: converting offer to Bluetooth Voice call offer for $targetId")
                 onCallFallbackToBluetooth?.invoke(payload.callId ?: "")
                 payload.copy(isBluetoothVoice = true, sdp = null, callType = CallType.VOICE)
             } else {

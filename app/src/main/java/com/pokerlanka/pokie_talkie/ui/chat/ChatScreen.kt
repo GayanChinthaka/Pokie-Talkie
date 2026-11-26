@@ -49,11 +49,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.pokerlanka.pokie_talkie.data.local.ConnectionMode
 import com.pokerlanka.pokie_talkie.data.model.CallType
 import com.pokerlanka.pokie_talkie.data.model.MessageStatus
 import com.pokerlanka.pokie_talkie.ui.components.AvatarView
 import com.pokerlanka.pokie_talkie.ui.components.ChatBubble
-import com.pokerlanka.pokie_talkie.ui.components.LanStatusBadge
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkBg
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkInput
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkSurface
@@ -94,6 +94,7 @@ fun ChatScreen(
 
     val messages by viewModel.messages.collectAsState()
     val contact by viewModel.contact.collectAsState()
+    val connectionMode by viewModel.connectionMode.collectAsState()
     val isStickerPickerOpen by viewModel.isStickerPickerOpen.collectAsState()
     val inputText by viewModel.inputText.collectAsState()
     val listState = rememberLazyListState()
@@ -134,11 +135,6 @@ fun ChatScreen(
                                 fontWeight = FontWeight.SemiBold,
                                 style = MaterialTheme.typography.titleMedium
                             )
-                            LanStatusBadge(
-                                isOnlineLan = contact?.isOnlineLan == true,
-                                fcmToken = contact?.fcmToken ?: "",
-                                bluetoothAddress = contact?.bluetoothAddress
-                            )
                         }
                     }
                 },
@@ -164,17 +160,26 @@ fun ChatScreen(
                         )
                     }
 
+                    val isBtMode = connectionMode == ConnectionMode.BLUETOOTH
                     IconButton(onClick = {
-                        val isLan = contact?.isOnlineLan == true
-                        val type = if (isLan) CallType.VIDEO else CallType.VOICE
-                        if (viewModel.initiateCall(type)) {
-                            contact?.id?.let { onNavigateToCall(it, type) }
+                        if (isBtMode) {
+                            viewModel.initiateCall(CallType.VIDEO)
+                        } else {
+                            val isLan = contact?.isOnlineLan == true
+                            val type = if (isLan) CallType.VIDEO else CallType.VOICE
+                            if (viewModel.initiateCall(type)) {
+                                contact?.id?.let { onNavigateToCall(it, type) }
+                            }
                         }
                     }) {
                         Icon(
                             imageVector = Icons.Default.Videocam,
                             contentDescription = "Video Call",
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = if (isBtMode) {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f)
+                            } else {
+                                MaterialTheme.colorScheme.primary
+                            }
                         )
                     }
                 },

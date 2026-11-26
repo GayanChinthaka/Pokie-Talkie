@@ -190,7 +190,8 @@ class BluetoothTransportManager(
      */
     fun getKnownOrPairedAddress(contactId: String, contactName: String, storedAddress: String?): String? {
         if (!storedAddress.isNullOrBlank()) return storedAddress
-        return peerAddressMap[contactId]
+        peerAddressMap[contactId]?.let { return it }
+        return resolveAddressFromPairedDevices(contactId, contactName)
     }
 
     /**
@@ -216,11 +217,119 @@ class BluetoothTransportManager(
             }
 
             if (address.isNullOrBlank()) {
+                address = resolveAddressFromPairedDevices(targetId, contact?.name)
+                if (!address.isNullOrBlank()) {
+                    peerAddressMap[targetId] = address
+                    contactRepository?.updateBluetoothAddress(targetId, address)
+                }
+            }
+
+            if (address.isNullOrBlank()) {
                 Log.w(tag, "No known Bluetooth address for target peer: $targetId (${contact?.name})")
                 return@withContext false
             }
 
             return@withContext sendPayloadToAddress(address, payload)
+        }
+    }
+
+    /**
+     * Resolves a paired device MAC address for [targetId] / [contactName] via fuzzy name match
+     * or Pokie-Talkie UUID advertisement, and returns the MAC if a match is found.
+     */
+    private fun resolveAddressFromPairedDevices(targetId: String, contactName: String?): String? {
+        if (!isBluetoothSupported || !isBluetoothEnabled || !hasPermission()) return null
+        val paired = getPairedDevices()
+        if (paired.isEmpty()) return null
+
+        // 1. Direct MAC check
+        if (BluetoothAdapter.checkBluetoothAddress(targetId)) {
+            return targetId
+        }
+
+        // 2. Fuzzy name match (e.g. "Xiaomi Redmi Note 7" <-> "Redmi Note 7")
+        val cleanContactName = contactName?.trim().orEmpty()
+        if (cleanContactName.isNotBlank()) {
+            val nameMatch = paired.firstOrNull { device ->
+                val btName = try { device.name?.trim().orEmpty() } catch (e: Exception) { "" }
+                btName.isNotBlank() && (
+                    cleanContactName.equals(btName, ignoreCase = true) ||
+                        cleanContactName.contains(btName, ignoreCase = true) ||
+                        btName.contains(cleanContactName, ignoreCase = true)
+                    )
+            }
+            if (nameMatch != null) return nameMatch.address
+        }
+
+        // 3. Paired device advertising Pokie-Talkie's RFCOMM UUID (unique match)
+        val pokieUuidMatches = paired.filter { device ->
+            try {
+                device.uuids?.any { it.uuid == POKIE_BT_UUID } == true
+            } catch (e: Exception) {
+                false
+            }
+        }
+        if (pokieUuidMatches.size == 1) {
+            return pokieUuidMatches.first().address
+        }
+
+        // 4. Single paired PHONE device fallback (e.g. custom BT rename like "Gayan 15C 5G")
+        val phoneCandidates = paired.filter { isPhoneCandidate(it) }
+        if (phoneCandidates.size == 1) {
+            return phoneCandidates.first().address
+        }
+
+        return null
+    }
+
+    private fun isPhoneCandidate(device: BluetoothDevice): Boolean {
+        return try {
+            val major = device.bluetoothClass?.majorDeviceClass
+            major == BluetoothClass.Device.Major.PHONE ||
+                major == BluetoothClass.Device.Major.UNCATEGORIZED ||
+                major == null
+        } catch (e: Exception) {
+            true
+        }
+    }
+
+    /**
+     * Probes paired phone / Pokie-Talkie devices with a Bluetooth PING so both peers
+     * automatically link their userId <-> Bluetooth MAC even when Bluetooth device names differ.
+     */
+    suspend fun discoverPairedPokiePeers(myUserId: String, myUserName: String) {
+        withContext(Dispatchers.IO) {
+            if (!isBluetoothSupported || !isBluetoothEnabled || !hasPermission()) return@withContext
+            val paired = getPairedDevices()
+            if (paired.isEmpty()) return@withContext
+
+            val candidates = paired.filter { device ->
+                val hasPokieUuid = try {
+                    device.uuids?.any { it.uuid == POKIE_BT_UUID } == true
+                } catch (e: Exception) {
+                    false
+                }
+                hasPokieUuid || isPhoneCandidate(device)
+            }
+
+            if (candidates.isEmpty()) return@withContext
+            Log.i(tag, "Probing ${candidates.size} paired Bluetooth phone/Pokie candidate(s) for peer discovery")
+
+            val pingPayload = SignalingPayload(
+                type = SignalingType.PING,
+                senderId = myUserId,
+                senderName = myUserName,
+                targetId = ""
+            )
+
+            candidates.forEach { device ->
+                try {
+                    val sent = sendPayloadToAddress(device.address, pingPayload)
+                    Log.d(tag, "Bluetooth discovery PING to ${device.name} (${device.address}) -> $sent")
+                } catch (e: Exception) {
+                    Log.w(tag, "Bluetooth discovery PING error for ${device.address}: ${e.message}")
+                }
+            }
         }
     }
 
@@ -342,10 +451,14 @@ class BluetoothTransportManager(
                     peerAddressMap[address] = address
                     if (name.isNotBlank()) peerAddressMap[name] = address
 
-                    val matched = existingContacts.find { 
-                        it.id == address || 
-                        it.bluetoothAddress.equals(address, ignoreCase = true) || 
-                        (it.name.isNotBlank() && it.name.equals(name, ignoreCase = true)) 
+                    val matched = existingContacts.find {
+                        it.id == address ||
+                        it.bluetoothAddress.equals(address, ignoreCase = true) ||
+                        (it.name.isNotBlank() && (
+                            it.name.equals(name, ignoreCase = true) ||
+                                it.name.contains(name, ignoreCase = true) ||
+                                name.contains(it.name, ignoreCase = true)
+                            ))
                     }
 
                     if (matched != null) {

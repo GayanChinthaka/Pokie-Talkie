@@ -1,6 +1,7 @@
 package com.pokerlanka.pokie_talkie
 
 import com.google.gson.Gson
+import com.pokerlanka.pokie_talkie.data.local.ConnectionMode
 import com.pokerlanka.pokie_talkie.data.model.CallType
 import com.pokerlanka.pokie_talkie.data.model.SignalingPayload
 import com.pokerlanka.pokie_talkie.data.model.SignalingType
@@ -59,5 +60,10 @@ class CallFeaturesUnitTest {
         val option = AudioRouteOption(AudioRoute.BLUETOOTH, "Galaxy Buds2", "Galaxy Buds2")
         assertEquals(AudioRoute.BLUETOOTH, option.route)
         assertEquals("Galaxy Buds2", option.label)
+    }
+
+    @Test
+    fun connectionMode_hasWifiAndBluetooth() {
+        assertEquals(listOf(ConnectionMode.WIFI, ConnectionMode.BLUETOOTH), ConnectionMode.entries)
     }
 }

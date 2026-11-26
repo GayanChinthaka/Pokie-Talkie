@@ -14,6 +14,11 @@ enum class AppThemeMode {
     DARK
 }
 
+enum class ConnectionMode {
+    WIFI,
+    BLUETOOTH
+}
+
 class UserPreferencesManager(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("pokie_user_prefs", Context.MODE_PRIVATE)
 
@@ -34,6 +39,7 @@ class UserPreferencesManager(context: Context) {
         private const val KEY_AUTO_CHECK_UPDATES = "key_auto_check_updates"
         private const val KEY_LAST_UPDATE_CHECK_TIME = "key_last_update_check_time"
         private const val KEY_THEME_ACCENT_COLOR = "key_theme_accent_color"
+        private const val KEY_CONNECTION_MODE = "key_connection_mode"
         const val DEFAULT_AVATAR_COLOR = 0xFF00A884
         const val DEFAULT_ACCENT_COLOR = 0xFF00A884
     }
@@ -94,6 +100,18 @@ class UserPreferencesManager(context: Context) {
 
     private val _lastUpdateCheckTimeFlow = MutableStateFlow(prefs.getLong(KEY_LAST_UPDATE_CHECK_TIME, 0L))
     val lastUpdateCheckTimeFlow: StateFlow<Long> = _lastUpdateCheckTimeFlow.asStateFlow()
+
+    private val _connectionModeFlow = MutableStateFlow(getConnectionModeInternal())
+    val connectionModeFlow: StateFlow<ConnectionMode> = _connectionModeFlow.asStateFlow()
+
+    private fun getConnectionModeInternal(): ConnectionMode {
+        val saved = prefs.getString(KEY_CONNECTION_MODE, ConnectionMode.WIFI.name)
+        return try {
+            ConnectionMode.valueOf(saved ?: ConnectionMode.WIFI.name)
+        } catch (e: Exception) {
+            ConnectionMode.WIFI
+        }
+    }
 
     private fun getUserNameInternal(): String {
         val saved = prefs.getString(KEY_USER_NAME, null)
@@ -203,6 +221,11 @@ class UserPreferencesManager(context: Context) {
         _lastUpdateCheckTimeFlow.value = timestamp
     }
 
+    fun setConnectionMode(mode: ConnectionMode) {
+        prefs.edit().putString(KEY_CONNECTION_MODE, mode.name).apply()
+        _connectionModeFlow.value = mode
+    }
+
     fun getUserName(): String = _userNameFlow.value
     fun getFcmToken(): String = _fcmTokenFlow.value
     fun getFcmServerKey(): String? = _fcmServerKeyFlow.value
@@ -218,5 +241,6 @@ class UserPreferencesManager(context: Context) {
     fun isMessageVibrationEnabled(): Boolean = _messageVibrationEnabledFlow.value
     fun isAutoCheckUpdates(): Boolean = _autoCheckUpdatesFlow.value
     fun getLastUpdateCheckTime(): Long = _lastUpdateCheckTimeFlow.value
+    fun getConnectionMode(): ConnectionMode = _connectionModeFlow.value
 }
 

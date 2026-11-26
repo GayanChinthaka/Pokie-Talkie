@@ -52,6 +52,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import org.webrtc.SessionDescription
 
+import com.pokerlanka.pokie_talkie.data.local.ConnectionMode
 import com.pokerlanka.pokie_talkie.data.local.UserPreferencesManager
 import com.pokerlanka.pokie_talkie.data.model.Contact
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -202,8 +203,10 @@ class AppContainer(val context: Context) {
         resetAudioModeToNormal()
         telecomCallManager.registerPhoneAccount()
 
-        // Start LAN Socket Server on Port 52220
-        lanSocketServer.start(52220)
+        // Start LAN Socket Server only if in Wi-Fi mode
+        if (userPreferencesManager.getConnectionMode() == ConnectionMode.WIFI) {
+            lanSocketServer.start(52220)
+        }
 
         // Initialize and start NSD / mDNS discovery with real profile info
         // Item 3.4: resetAllLanStatus() before starting discovery
@@ -213,9 +216,13 @@ class AppContainer(val context: Context) {
             lanDiscoveryManager.initialize(currentUserId, currentUserName, lanSocketServer.serverPort, savedFcmToken)
             lanDiscoveryManager.onPeerDiscovered = { peer ->
                 Log.i(tag, "LAN peer discovered: ${peer.name} (${peer.id}), sending direct PING exchange")
-                fcmSignalingClient.sendPing(peer.id)
+                if (userPreferencesManager.getConnectionMode() == ConnectionMode.WIFI) {
+                    fcmSignalingClient.sendPing(peer.id)
+                }
             }
-            lanDiscoveryManager.startDiscoveryAndRegistration()
+            if (userPreferencesManager.getConnectionMode() == ConnectionMode.WIFI) {
+                lanDiscoveryManager.startDiscoveryAndRegistration()
+            }
         }
 
         // Fetch fresh FCM registration token from Google Play Services
@@ -243,10 +250,13 @@ class AppContainer(val context: Context) {
         // Item 3.7: link lanDiscoveryManager for re-resolving failed LAN sends
         fcmSignalingClient.lanDiscoveryManager = lanDiscoveryManager
 
-        // Item 3.2: reject Bluetooth voice sockets if call is not active
+        // Item 3.2: reject Bluetooth voice sockets if call is not active or app is not in Bluetooth mode
         bluetoothVoiceManager.isBluetoothCallActiveProvider = {
             val currentCall = callRepository.currentCall.value
-            currentCall != null && currentCall.state == CallState.CONNECTED && currentCall.isBluetoothVoice
+            userPreferencesManager.getConnectionMode() == ConnectionMode.BLUETOOTH &&
+                currentCall != null &&
+                currentCall.state == CallState.CONNECTED &&
+                currentCall.isBluetoothVoice
         }
 
         // Setup WebRTC Callbacks
@@ -255,13 +265,8 @@ class AppContainer(val context: Context) {
         // Ring timeout must run for the first call too, before anything else touches the lazy controller
         callController.start()
 
-        // Start Bluetooth listeners
-        try {
-            bluetoothTransportManager.startServer()
-            bluetoothVoiceManager.startVoiceServer()
-        } catch (e: Exception) {
-            Log.w(tag, "Bluetooth listener start deferred: ${e.message}")
-        }
+        // Start mode-appropriate listeners (Wi-Fi vs Bluetooth)
+        ensureListenersActive()
 
         // Initialize Wi-Fi Direct
         try {
@@ -398,6 +403,16 @@ class AppContainer(val context: Context) {
 
     fun handleIncomingSignalingPayload(payload: SignalingPayload, source: String) {
         try {
+            val activeMode = userPreferencesManager.getConnectionMode()
+            if (activeMode == ConnectionMode.WIFI && source == "Bluetooth") {
+                Log.i(tag, "Ignoring incoming Bluetooth payload [${payload.type}] because app is in Wi-Fi mode")
+                return
+            }
+            if (activeMode == ConnectionMode.BLUETOOTH && (source == "LAN" || source == "FCM")) {
+                Log.i(tag, "Ignoring incoming $source payload [${payload.type}] because app is in Bluetooth mode")
+                return
+            }
+
             Log.d(tag, "Handling incoming $source payload [${payload.type}] from ${payload.senderName} (${payload.senderId})")
 
             val isLan = (source == "LAN")
@@ -407,19 +422,26 @@ class AppContainer(val context: Context) {
 
             applicationScope.launch(Dispatchers.IO) {
                 val existing = contactRepository.getContact(payload.senderId)
+                val peerBtAddr = if (source == "Bluetooth") bluetoothTransportManager.getPeerAddress(payload.senderId) else null
                 if (existing == null) {
+                    val oldBtContact = if (!peerBtAddr.isNullOrBlank()) contactRepository.getContact(peerBtAddr) else null
                     val newContact = Contact(
                         id = payload.senderId,
-                        name = payload.senderName.ifBlank { "Family Member" },
-                        fcmToken = payload.senderFcmToken ?: "",
-                        bluetoothAddress = bluetoothTransportManager.getPeerAddress(payload.senderId) ?: "",
+                        name = payload.senderName.ifBlank { oldBtContact?.name ?: "Family Member" },
+                        fcmToken = payload.senderFcmToken ?: oldBtContact?.fcmToken ?: "",
+                        bluetoothAddress = peerBtAddr ?: oldBtContact?.bluetoothAddress ?: "",
                         ipAddress = effectiveIp ?: "",
                         port = effectivePort,
                         isOnlineLan = isLan,
                         lastSeenTimestamp = System.currentTimeMillis()
                     )
-                    contactRepository.saveOrUpdateContact(newContact)
-                    Log.i(tag, "Saved new contact from $source: ${newContact.name} (${newContact.id}, IP: ${newContact.ipAddress}, FCM: ${newContact.fcmToken.take(15)}...)")
+                    if (oldBtContact != null && oldBtContact.id != payload.senderId) {
+                        contactRepository.mergeContactAndMigrateMessages(oldBtContact.id, newContact)
+                        Log.i(tag, "Merged paired BT contact ${oldBtContact.id} into ${newContact.name} (${newContact.id})")
+                    } else {
+                        contactRepository.saveOrUpdateContact(newContact)
+                        Log.i(tag, "Saved new contact from $source: ${newContact.name} (${newContact.id}, IP: ${newContact.ipAddress}, FCM: ${newContact.fcmToken.take(15)}...)")
+                    }
                 } else {
                     var updated = existing
                     var changed = false
@@ -427,6 +449,11 @@ class AppContainer(val context: Context) {
                         updated = updated.copy(fcmToken = payload.senderFcmToken)
                         changed = true
                         Log.i(tag, "Updated FCM token for ${existing.name} from $source payload")
+                    }
+                    if (!peerBtAddr.isNullOrBlank() && !peerBtAddr.equals(existing.bluetoothAddress, ignoreCase = true)) {
+                        updated = updated.copy(bluetoothAddress = peerBtAddr)
+                        changed = true
+                        Log.i(tag, "Updated Bluetooth address for ${existing.name}: $peerBtAddr")
                     }
                     if (!effectiveIp.isNullOrBlank() && (effectiveIp != existing.ipAddress || (isLan && !existing.isOnlineLan))) {
                         updated = updated.copy(
@@ -444,7 +471,16 @@ class AppContainer(val context: Context) {
                         updated = updated.copy(name = payload.senderName)
                         changed = true
                     }
-                    if (changed) {
+                    val oldBtContact = if (!peerBtAddr.isNullOrBlank() && peerBtAddr != existing.id) {
+                        contactRepository.getContact(peerBtAddr)
+                    } else null
+                    if (oldBtContact != null) {
+                        contactRepository.mergeContactAndMigrateMessages(
+                            oldId = oldBtContact.id,
+                            newContact = updated.copy(lastSeenTimestamp = System.currentTimeMillis())
+                        )
+                        Log.i(tag, "Merged duplicate BT contact ${oldBtContact.id} into ${updated.name}")
+                    } else if (changed) {
                         contactRepository.saveOrUpdateContact(updated.copy(lastSeenTimestamp = System.currentTimeMillis()))
                     }
                 }
@@ -773,25 +809,66 @@ class AppContainer(val context: Context) {
         }
     }
 
+    fun setConnectionMode(mode: ConnectionMode) {
+        userPreferencesManager.setConnectionMode(mode)
+        ensureListenersActive()
+    }
+
     fun ensureListenersActive() {
-        try {
-            if (!lanSocketServer.isRunning) {
-                lanSocketServer.start(52220)
+        val mode = userPreferencesManager.getConnectionMode()
+        val activeCall = callRepository.currentCall.value
+        val hasOngoingCall = activeCall != null && activeCall.state in listOf(
+            CallState.RINGING_INCOMING,
+            CallState.RINGING_OUTGOING,
+            CallState.CONNECTING,
+            CallState.CONNECTED
+        )
+
+        if (mode == ConnectionMode.WIFI) {
+            try {
+                if (!lanSocketServer.isRunning) {
+                    lanSocketServer.start(52220)
+                }
+                lanDiscoveryManager.startDiscoveryAndRegistration()
+            } catch (e: Exception) {
+                Log.w(tag, "LAN listener start error: ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.w(tag, "LanSocketServer start error: ${e.message}")
-        }
-        try {
-            if (!bluetoothTransportManager.isRunning) {
-                bluetoothTransportManager.startServer()
+            if (!hasOngoingCall || activeCall?.isBluetoothVoice == false) {
+                try {
+                    bluetoothTransportManager.stopServer()
+                    bluetoothVoiceManager.stop()
+                } catch (e: Exception) {
+                    Log.w(tag, "Bluetooth listener stop error: ${e.message}")
+                }
             }
-        } catch (e: Exception) {
-            Log.w(tag, "Bluetooth start error: ${e.message}")
-        }
-        try {
-            bluetoothVoiceManager.startVoiceServer()
-        } catch (e: Exception) {
-            Log.w(tag, "Bluetooth voice server start error: ${e.message}")
+        } else {
+            val wasBtServerRunning = bluetoothTransportManager.isRunning
+            try {
+                if (!wasBtServerRunning) {
+                    bluetoothTransportManager.startServer()
+                }
+            } catch (e: Exception) {
+                Log.w(tag, "Bluetooth start error: ${e.message}")
+            }
+            try {
+                bluetoothVoiceManager.startVoiceServer()
+            } catch (e: Exception) {
+                Log.w(tag, "Bluetooth voice server start error: ${e.message}")
+            }
+            if (!wasBtServerRunning) {
+                applicationScope.launch(Dispatchers.IO) {
+                    bluetoothTransportManager.syncPairedDevicesToContacts()
+                    bluetoothTransportManager.discoverPairedPokiePeers(currentUserId, currentUserName)
+                }
+            }
+            if (!hasOngoingCall || activeCall?.isBluetoothVoice == true) {
+                try {
+                    lanSocketServer.stop()
+                    lanDiscoveryManager.stop()
+                } catch (e: Exception) {
+                    Log.w(tag, "LAN listener stop error: ${e.message}")
+                }
+            }
         }
     }
 

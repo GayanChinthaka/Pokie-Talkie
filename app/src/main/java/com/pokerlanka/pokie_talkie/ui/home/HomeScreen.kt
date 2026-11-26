@@ -1,7 +1,12 @@
 package com.pokerlanka.pokie_talkie.ui.home
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,6 +18,7 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,10 +31,9 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Wifi
-import com.pokerlanka.pokie_talkie.lan.ActiveTransportMode
+import com.pokerlanka.pokie_talkie.data.local.ConnectionMode
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -63,7 +68,6 @@ import androidx.compose.ui.unit.sp
 import com.pokerlanka.pokie_talkie.data.model.CallType
 import com.pokerlanka.pokie_talkie.data.model.Contact
 import com.pokerlanka.pokie_talkie.ui.components.AvatarView
-import com.pokerlanka.pokie_talkie.ui.components.LanStatusBadge
 import com.pokerlanka.pokie_talkie.ui.dev.DevConfig
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkCard
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkInput
@@ -92,58 +96,12 @@ fun HomeScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "Pokie Talkie",
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontWeight = FontWeight.Bold,
-                                style = MaterialTheme.typography.titleLarge
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-
-                            val transportText = when (state.activeTransport) {
-                                ActiveTransportMode.WIFI -> "Wi-Fi LAN"
-                                ActiveTransportMode.WIFI_DIRECT -> "Wi-Fi Direct"
-                                ActiveTransportMode.BLUETOOTH -> "Bluetooth"
-                                ActiveTransportMode.OFFLINE -> "Offline"
-                            }
-                            val transportColor = when (state.activeTransport) {
-                                ActiveTransportMode.WIFI -> PokieLanActiveBadge
-                                ActiveTransportMode.WIFI_DIRECT -> Color(0xFFAB47BC)
-                                ActiveTransportMode.BLUETOOTH -> Color(0xFF2979FF)
-                                ActiveTransportMode.OFFLINE -> MaterialTheme.colorScheme.onSurfaceVariant
-                            }
-                            val transportIcon = when (state.activeTransport) {
-                                ActiveTransportMode.WIFI -> Icons.Default.Wifi
-                                ActiveTransportMode.WIFI_DIRECT -> Icons.Default.Wifi
-                                ActiveTransportMode.BLUETOOTH -> Icons.Default.Bluetooth
-                                ActiveTransportMode.OFFLINE -> Icons.Default.Sensors
-                            }
-
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = transportColor.copy(alpha = 0.2f)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = transportIcon,
-                                        contentDescription = null,
-                                        tint = transportColor,
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(3.dp))
-                                    Text(
-                                        text = transportText,
-                                        color = transportColor,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                        }
+                        Text(
+                            text = "Pokie Talkie",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.titleLarge
+                        )
                         Text(
                             text = "You: ${state.myDeviceName}",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -157,7 +115,7 @@ fun HomeScreen(
                             shape = RoundedCornerShape(12.dp),
                             color = Color(0xFFF59E0B).copy(alpha = 0.2f),
                             modifier = Modifier
-                                .padding(end = 4.dp)
+                                .padding(end = 6.dp)
                                 .clickable(onClick = onNavigateToDevHub)
                         ) {
                             Row(
@@ -165,7 +123,7 @@ fun HomeScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "🧪 UI Test Hub",
+                                    text = "🧪 Test",
                                     color = Color(0xFFFBBF24),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
@@ -173,6 +131,12 @@ fun HomeScreen(
                             }
                         }
                     }
+
+                    ConnectionModeSwitch(
+                        mode = state.connectionMode,
+                        onToggle = viewModel::toggleConnectionMode,
+                        modifier = Modifier.padding(end = 4.dp)
+                    )
 
                     IconButton(onClick = onNavigateToSettings) {
                         Icon(
@@ -461,21 +425,13 @@ fun ContactItemCard(
                     fontWeight = FontWeight.SemiBold,
                     style = MaterialTheme.typography.titleMedium
                 )
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    LanStatusBadge(
-                        isOnlineLan = contact.isOnlineLan,
-                        fcmToken = contact.fcmToken,
-                        bluetoothAddress = contact.bluetoothAddress
+                if (contact.isOnlineLan && contact.ipAddress.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = contact.ipAddress,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp
                     )
-                    if (contact.isOnlineLan && contact.ipAddress.isNotBlank()) {
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = contact.ipAddress,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 11.sp
-                        )
-                    }
                 }
             }
 
@@ -498,6 +454,96 @@ fun ContactItemCard(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun ConnectionModeSwitch(
+    mode: ConnectionMode,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isBluetooth = mode == ConnectionMode.BLUETOOTH
+    val trackWidth = 88.dp
+    val trackHeight = 34.dp
+    val thumbSize = 28.dp
+    val padding = 3.dp
+
+    val softWifiAccent = Color(0xFF4F9D85)
+    val softBtAccent = Color(0xFF5B86C5)
+
+    val thumbOffset by animateDpAsState(
+        targetValue = if (isBluetooth) trackWidth - thumbSize - padding else padding,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "modeThumbOffset"
+    )
+    val trackColor by animateColorAsState(
+        targetValue = if (isBluetooth) {
+            softBtAccent.copy(alpha = 0.14f)
+        } else {
+            softWifiAccent.copy(alpha = 0.14f)
+        },
+        label = "modeTrackColor"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (isBluetooth) {
+            softBtAccent.copy(alpha = 0.30f)
+        } else {
+            softWifiAccent.copy(alpha = 0.30f)
+        },
+        label = "modeBorderColor"
+    )
+    val thumbColor by animateColorAsState(
+        targetValue = if (isBluetooth) softBtAccent else softWifiAccent,
+        label = "modeThumbColor"
+    )
+    val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+
+    Box(
+        modifier = modifier
+            .width(trackWidth)
+            .height(trackHeight)
+            .clip(CircleShape)
+            .background(trackColor)
+            .border(1.5.dp, borderColor, CircleShape)
+            .clickable(onClick = onToggle),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        // Mode label inside track opposite to the sliding thumb
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = if (isBluetooth) Arrangement.Start else Arrangement.End
+        ) {
+            Text(
+                text = if (isBluetooth) "BT" else "WI-FI",
+                color = labelColor,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 0.5.sp
+            )
+        }
+
+        // Sliding circular icon thumb
+        Surface(
+            modifier = Modifier
+                .offset(x = thumbOffset)
+                .size(thumbSize),
+            shape = CircleShape,
+            color = thumbColor,
+            shadowElevation = 3.dp
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = if (isBluetooth) Icons.Default.Bluetooth else Icons.Default.Wifi,
+                    contentDescription = if (isBluetooth) "Bluetooth Mode" else "Wi-Fi Mode",
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
+                )
             }
         }
     }
