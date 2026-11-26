@@ -27,11 +27,15 @@ fun WebRtcVideoView(
         val currentRenderer = renderer
         val currentTrack = videoTrack
         if (currentRenderer != null && currentTrack != null) {
-            currentTrack.addSink(currentRenderer)
+            try {
+                currentTrack.addSink(currentRenderer)
+            } catch (_: IllegalStateException) {}
         }
         onDispose {
             if (currentRenderer != null && currentTrack != null) {
-                currentTrack.removeSink(currentRenderer)
+                try {
+                    currentTrack.removeSink(currentRenderer)
+                } catch (_: IllegalStateException) {}
             }
         }
     }

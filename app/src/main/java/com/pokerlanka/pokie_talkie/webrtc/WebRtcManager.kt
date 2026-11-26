@@ -24,6 +24,7 @@ import org.webrtc.EglBase
 import org.webrtc.IceCandidate
 import org.webrtc.MediaConstraints
 import org.webrtc.MediaStream
+import org.webrtc.MediaStreamTrack
 import org.webrtc.PeerConnection
 import org.webrtc.PeerConnectionFactory
 import org.webrtc.RtpReceiver
@@ -56,7 +57,6 @@ class WebRtcManager(
     private var screenSurfaceTextureHelper: SurfaceTextureHelper? = null
     private var screenVideoSource: VideoSource? = null
     private var screenVideoTrack: VideoTrack? = null
-    private var activeVideoSender: RtpSender? = null
     private var wasCameraEnabledBeforeScreenShare: Boolean = true
     private var iceDisconnectTimerJob: Job? = null
 
@@ -292,7 +292,7 @@ class WebRtcManager(
             peerConnection?.addTrack(it, listOf("ARDAMS"))
         }
         localVideoTrack?.let {
-            activeVideoSender = peerConnection?.addTrack(it, listOf("ARDAMS"))
+            peerConnection?.addTrack(it, listOf("ARDAMS"))
         }
     }
 
@@ -461,6 +461,17 @@ class WebRtcManager(
         _isRemoteVideoEnabled.value = true
     }
 
+    private fun findVideoSender(pc: PeerConnection): RtpSender? {
+        pc.senders.firstOrNull { it.track()?.kind() == "video" }?.let { return it }
+        return try {
+            pc.transceivers.firstOrNull {
+                it.mediaType == MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO
+            }?.sender
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     @Synchronized
     fun startScreenShare(
         mediaProjectionPermissionData: Intent,
@@ -498,27 +509,26 @@ class WebRtcManager(
             screenShareCapturer = capturer
             screenVideoSource = source
             screenVideoTrack = track
-            _isScreenSharing.value = true
-            _localVideoTrackFlow.value = track
 
             val pc = peerConnection
-            val existingVideoSender = activeVideoSender
-                ?: pc?.senders?.firstOrNull { it.track()?.kind() == "video" }
+            val existingVideoSender = if (pc != null) findVideoSender(pc) else null
 
             if (existingVideoSender != null) {
-                activeVideoSender = existingVideoSender
                 existingVideoSender.setTrack(track, false)
                 Log.i(tag, "Swapped existing video RtpSender track to ScreenShare track")
             } else if (pc != null) {
-                activeVideoSender = pc.addTrack(track, listOf("ARDAMS"))
+                pc.addTrack(track, listOf("ARDAMS"))
                 Log.i(tag, "Added new ScreenShare video track to PeerConnection; requesting renegotiation")
                 onNeedRenegotiation()
             }
 
+            _isScreenSharing.value = true
+            _localVideoTrackFlow.value = track
             audioDeviceManager.onUpgradeToVideo()
             true
         } catch (e: Exception) {
             Log.e(tag, "Failed to start screen share: ${e.message}", e)
+            restoreCameraAfterFailedOrStoppedScreenShare()
             cleanupScreenShareResources()
             false
         }
@@ -531,22 +541,27 @@ class WebRtcManager(
 
         val currentScreenTrack = screenVideoTrack
         val pc = peerConnection
-        val videoSender = activeVideoSender
-            ?: pc?.senders?.firstOrNull {
-                it.track() === currentScreenTrack || it.track()?.kind() == "video"
-            }
+        val videoSender = pc?.senders?.firstOrNull {
+            it.track() === currentScreenTrack || it.track()?.kind() == "video"
+        } ?: if (pc != null) findVideoSender(pc) else null
 
         val cameraTrack = localVideoTrack
         if (videoSender != null) {
-            if (cameraTrack != null) {
+            try {
                 videoSender.setTrack(cameraTrack, false)
-            } else {
-                videoSender.setTrack(null, false)
+            } catch (e: Exception) {
+                Log.w(tag, "Error restoring sender track on stopScreenShare: ${e.message}")
             }
         }
 
+        // Update UI/state BEFORE disposing screenVideoTrack so Compose never binds a disposed track
+        restoreCameraAfterFailedOrStoppedScreenShare()
         cleanupScreenShareResources()
+    }
 
+    private fun restoreCameraAfterFailedOrStoppedScreenShare() {
+        _isScreenSharing.value = false
+        val cameraTrack = localVideoTrack
         if (cameraTrack != null) {
             if (wasCameraEnabledBeforeScreenShare) {
                 try {
@@ -641,12 +656,12 @@ class WebRtcManager(
         val track = localVideoTrack
         if (pc != null && track != null) {
             val hasVideoSender = pc.senders.any { it.track()?.kind() == "video" }
-            val sender = activeVideoSender
+            val sender = findVideoSender(pc)
             if (sender != null && !hasVideoSender) {
                 sender.setTrack(track, false)
                 Log.i(tag, "Reattached localVideoTrack to existing RtpSender on upgrade")
             } else if (!hasVideoSender) {
-                activeVideoSender = pc.addTrack(track, listOf("ARDAMS"))
+                pc.addTrack(track, listOf("ARDAMS"))
                 Log.i(tag, "Added localVideoTrack to active PeerConnection on upgrade")
             }
         }
@@ -819,7 +834,6 @@ class WebRtcManager(
 
             val pc = peerConnection
             peerConnection = null
-            activeVideoSender = null
             try {
                 pc?.close()
                 pc?.dispose()
