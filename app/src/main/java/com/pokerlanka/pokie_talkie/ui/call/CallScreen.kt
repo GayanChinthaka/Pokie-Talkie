@@ -31,16 +31,23 @@ import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Cameraswitch
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Headset
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.PhoneInTalk
+import androidx.compose.material.icons.filled.ScreenShare
+import androidx.compose.material.icons.filled.StopScreenShare
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VideocamOff
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -63,7 +70,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import android.app.Activity
+import android.content.Context
+import android.media.projection.MediaProjectionManager
 import androidx.compose.ui.platform.LocalContext
 import com.pokerlanka.pokie_talkie.data.model.CallState
 import com.pokerlanka.pokie_talkie.data.model.CallType
@@ -76,6 +87,7 @@ import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkBg
 import com.pokerlanka.pokie_talkie.ui.theme.PokieLanActiveBadge
 import com.pokerlanka.pokie_talkie.ui.theme.PokieTextPrimary
 import com.pokerlanka.pokie_talkie.ui.theme.PokieTextSecondary
+import com.pokerlanka.pokie_talkie.webrtc.AudioRoute
 import com.pokerlanka.pokie_talkie.webrtc.WebRtcVideoView
 import java.util.Locale
 
@@ -92,9 +104,22 @@ fun CallScreen(
     val isMuted by viewModel.isMuted.collectAsState()
     val isVideoEnabled by viewModel.isVideoEnabled.collectAsState()
     val isRemoteVideoEnabled by viewModel.isRemoteVideoEnabled.collectAsState()
+    val isScreenSharing by viewModel.isScreenSharing.collectAsState()
+    val isRemoteScreenSharing by viewModel.isRemoteScreenSharing.collectAsState()
     val isSpeakerOn by viewModel.isSpeakerOn.collectAsState()
+    val activeAudioRoute by viewModel.activeAudioRoute.collectAsState()
+    val availableAudioRoutes by viewModel.availableAudioRoutes.collectAsState()
     val videoUpgradeRequester by viewModel.videoUpgradeRequest.collectAsState()
     var snackbarMessage by remember { mutableStateOf<String?>(null) }
+    var showAudioRouteSheet by remember { mutableStateOf(false) }
+
+    val screenShareLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            viewModel.startScreenShare(result.data!!)
+        }
+    }
 
     val isCallActive = callSession?.state in listOf(
         CallState.RINGING_INCOMING,
@@ -124,9 +149,10 @@ fun CallScreen(
         }
     }
 
-    val isVideo = callSession?.callType == CallType.VIDEO
+    val isVideo = callSession?.callType == CallType.VIDEO || isRemoteScreenSharing || isScreenSharing
     val isRingingIncoming = callSession?.state == CallState.RINGING_INCOMING
     val isConnected = callSession?.state == CallState.CONNECTED
+    val isBtCall = callSession?.isBluetoothVoice == true
     val formattedDuration = callSession?.durationSeconds?.let { seconds ->
         String.format(Locale.getDefault(), "%02d:%02d", seconds / 60, seconds % 60)
     } ?: "00:00"
@@ -227,7 +253,7 @@ fun CallScreen(
 
             // Middle Section: Voice Call Avatar OR Video Call Camera-Off view (No plain black screen!)
             val isRemoteVideoActive = isVideo && remoteVideoTrack != null && isRemoteVideoEnabled
-            if (!isRemoteVideoActive) {
+            if (!isRemoteVideoActive && !isScreenSharing) {
                 val infiniteTransition = rememberInfiniteTransition(label = "pulse")
                 val pulseScale by infiniteTransition.animateFloat(
                     initialValue = 1f,
@@ -264,7 +290,7 @@ fun CallScreen(
                     }
 
                     // Crossed-out camera badge shown when it's a Video Call and peer has camera off
-                    if (isVideo && !isRemoteVideoEnabled) {
+                    if (isVideo && !isRemoteVideoEnabled && !isScreenSharing) {
                         Spacer(modifier = Modifier.height(16.dp))
                         Surface(
                             shape = RoundedCornerShape(20.dp),
@@ -326,17 +352,36 @@ fun CallScreen(
                             onClick = viewModel::toggleMute
                         )
 
-                        // Speakerphone
+                        // Audio Output Route (Bluetooth / Speaker / Earpiece / Headset)
+                        val audioRouteIcon = when (activeAudioRoute) {
+                            AudioRoute.BLUETOOTH -> Icons.Default.Bluetooth
+                            AudioRoute.WIRED_HEADSET -> Icons.Default.Headset
+                            AudioRoute.SPEAKER -> Icons.AutoMirrored.Filled.VolumeUp
+                            AudioRoute.EARPIECE -> Icons.AutoMirrored.Filled.VolumeDown
+                        }
+                        val audioRouteLabel = when (activeAudioRoute) {
+                            AudioRoute.BLUETOOTH -> "Bluetooth"
+                            AudioRoute.WIRED_HEADSET -> "Headset"
+                            AudioRoute.SPEAKER -> "Speaker"
+                            AudioRoute.EARPIECE -> "Earpiece"
+                        }
+                        val isAudioRouteHighlighted = activeAudioRoute != AudioRoute.EARPIECE
                         CallControlButton(
-                            icon = if (isSpeakerOn) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeDown,
-                            label = if (isSpeakerOn) "Speaker" else "Earpiece",
-                            backgroundColor = if (isSpeakerOn) PokieLanActiveBadge.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.2f),
+                            icon = audioRouteIcon,
+                            label = audioRouteLabel,
+                            backgroundColor = if (isAudioRouteHighlighted) PokieLanActiveBadge.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.2f),
                             iconTint = Color.White,
-                            onClick = viewModel::toggleSpeaker
+                            onClick = {
+                                if (availableAudioRoutes.size > 2) {
+                                    showAudioRouteSheet = true
+                                } else {
+                                    viewModel.toggleSpeaker()
+                                }
+                            }
                         )
 
-                        // Video / Camera Toggle (if video call)
-                        if (isVideo) {
+                        // Video / Camera Toggle (if video call & not currently screen sharing)
+                        if (callSession?.callType == CallType.VIDEO && !isScreenSharing) {
                             CallControlButton(
                                 icon = if (isVideoEnabled) Icons.Default.Videocam else Icons.Default.VideocamOff,
                                 label = if (isVideoEnabled) "Video Off" else "Video On",
@@ -350,7 +395,7 @@ fun CallScreen(
                                 label = "Flip",
                                 onClick = viewModel::switchCamera
                             )
-                        } else {
+                        } else if (!isScreenSharing && !isBtCall) {
                             // Switch to Video Call Option for Audio Calls
                             CallControlButton(
                                 icon = Icons.Default.Videocam,
@@ -358,6 +403,24 @@ fun CallScreen(
                                 backgroundColor = Color.White.copy(alpha = 0.2f),
                                 iconTint = Color.White,
                                 onClick = viewModel::requestSwitchToVideo
+                            )
+                        }
+
+                        // Screen Share Toggle (for active LAN/WebRTC calls)
+                        if (!isBtCall && isConnected) {
+                            CallControlButton(
+                                icon = if (isScreenSharing) Icons.Default.StopScreenShare else Icons.Default.ScreenShare,
+                                label = if (isScreenSharing) "Stop" else "Share",
+                                backgroundColor = if (isScreenSharing) Color(0xFF2979FF) else Color.White.copy(alpha = 0.2f),
+                                iconTint = Color.White,
+                                onClick = {
+                                    if (isScreenSharing) {
+                                        viewModel.stopScreenShare()
+                                    } else {
+                                        val mpm = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                                        screenShareLauncher.launch(mpm.createScreenCaptureIntent())
+                                    }
+                                }
                             )
                         }
 
@@ -375,8 +438,8 @@ fun CallScreen(
             }
         }
 
-        // Local Video PIP Thumbnail (Top-Right) for Video Calls
-        if (isVideo && localVideoTrack != null) {
+        // Local Video PIP Thumbnail (Top-Right) for Camera Video Calls (hidden while screen sharing)
+        if (callSession?.callType == CallType.VIDEO && !isScreenSharing && localVideoTrack != null) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -497,6 +560,167 @@ fun CallScreen(
                     }
                 }
             )
+        }
+
+        // Remote Screen Sharing indicator pill
+        if (isRemoteScreenSharing) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 138.dp)
+                    .zIndex(9f),
+                shape = RoundedCornerShape(18.dp),
+                color = Color(0xFF2979FF).copy(alpha = 0.85f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ScreenShare,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "${callSession?.peerName ?: "Peer"} is sharing screen",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+
+        // Local Screen Sharing active banner with quick Stop button
+        if (isScreenSharing) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 24.dp)
+                    .zIndex(9f),
+                shape = RoundedCornerShape(20.dp),
+                color = Color.Black.copy(alpha = 0.82f),
+                border = BorderStroke(1.dp, Color(0xFF2979FF).copy(alpha = 0.6f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ScreenShare,
+                        contentDescription = null,
+                        tint = Color(0xFF60A5FA),
+                        modifier = Modifier.size(36.dp)
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "You are sharing your screen",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "${callSession?.peerName ?: "Family member"} can see your display",
+                        color = PokieTextSecondary,
+                        style = MaterialTheme.typography.bodySmall,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Button(
+                        onClick = viewModel::stopScreenShare,
+                        colors = ButtonDefaults.buttonColors(containerColor = PokieCallRed)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.StopScreenShare,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Stop Sharing", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        // Audio Output Route Picker Sheet (Bluetooth / Phone Speaker / Earpiece / Wired Headset)
+        if (showAudioRouteSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showAudioRouteSheet = false },
+                containerColor = Color(0xFF1A222C),
+                contentColor = Color.White
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp)
+                        .padding(bottom = 28.dp)
+                ) {
+                    Text(
+                        text = "Audio Output",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                    availableAudioRoutes.forEach { option ->
+                        val selected = option.route == activeAudioRoute
+                        val optionIcon = when (option.route) {
+                            AudioRoute.BLUETOOTH -> Icons.Default.Bluetooth
+                            AudioRoute.WIRED_HEADSET -> Icons.Default.Headset
+                            AudioRoute.SPEAKER -> Icons.AutoMirrored.Filled.VolumeUp
+                            AudioRoute.EARPIECE -> Icons.Default.PhoneInTalk
+                        }
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable {
+                                    viewModel.selectAudioRoute(option.route)
+                                    showAudioRouteSheet = false
+                                },
+                            color = if (selected) PokieLanActiveBadge.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.06f),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = optionIcon,
+                                        contentDescription = null,
+                                        tint = if (selected) PokieLanActiveBadge else Color.White,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(14.dp))
+                                    Text(
+                                        text = option.label,
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                }
+                                if (selected) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = "Selected",
+                                        tint = PokieLanActiveBadge,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // Floating in-call notification chip

@@ -46,6 +46,10 @@ import com.pokerlanka.pokie_talkie.wifip2p.WifiDirectManager
 import com.pokerlanka.pokie_talkie.telecom.RingtoneVibrationManager
 import com.pokerlanka.pokie_talkie.telecom.CallController
 import com.pokerlanka.pokie_talkie.telecom.EndReason
+import com.pokerlanka.pokie_talkie.telecom.ProximityLock
+import com.pokerlanka.pokie_talkie.service.PokieLocalService
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import org.webrtc.SessionDescription
 
 import com.pokerlanka.pokie_talkie.data.local.UserPreferencesManager
@@ -82,6 +86,8 @@ class AppContainer(val context: Context) {
             bluetoothVoiceManager = bluetoothVoiceManager,
             telecomCallManager = telecomCallManager,
             fcmSignalingClient = fcmSignalingClient,
+            ringtoneVibrationManager = ringtoneVibrationManager,
+            proximityLock = proximityLock,
             scope = applicationScope
         )
     }
@@ -90,7 +96,14 @@ class AppContainer(val context: Context) {
     val lanSocketServer by lazy { LanSocketServer(applicationScope) }
     val lanDiscoveryManager by lazy { LanDiscoveryManager(context, contactRepository, applicationScope) }
     val bluetoothTransportManager by lazy { BluetoothTransportManager(context, applicationScope, contactRepository) }
-    val bluetoothVoiceManager by lazy { BluetoothVoiceManager(context, applicationScope, bluetoothTransportManager.bluetoothAdapter) }
+    val bluetoothVoiceManager by lazy {
+        BluetoothVoiceManager(
+            context = context,
+            scope = applicationScope,
+            bluetoothAdapter = bluetoothTransportManager.bluetoothAdapter,
+            audioDeviceManager = webRtcManager.audioDeviceManager
+        )
+    }
     val wifiDirectManager by lazy {
         WifiDirectManager(context) { peerIp, isGroupOwner ->
             if (!isGroupOwner) {
@@ -127,6 +140,7 @@ class AppContainer(val context: Context) {
 
     val webRtcManager by lazy { WebRtcManager(context, applicationScope) }
     val ringtoneVibrationManager by lazy { RingtoneVibrationManager(context, userPreferencesManager) }
+    val proximityLock by lazy { ProximityLock(context) }
     val telecomCallManager by lazy { TelecomCallManager(context, callRepository, webRtcManager, ringtoneVibrationManager) }
 
     @Volatile
@@ -710,8 +724,8 @@ class AppContainer(val context: Context) {
                 val incomingCallId = payload.callId ?: ""
                 if (currentCall != null && currentCall.callId == incomingCallId) {
                     val isCameraOn = payload.isCameraOn ?: true
-                    Log.i(tag, "Received CAMERA_STATE from ${payload.senderName}: isCameraOn=$isCameraOn")
-                    webRtcManager.setRemoteVideoEnabled(isCameraOn)
+                    Log.i(tag, "Received CAMERA_STATE from ${payload.senderName}: isCameraOn=$isCameraOn, isScreenShare=${payload.isScreenShare}")
+                    webRtcManager.setRemoteVideoEnabled(isCameraOn, payload.isScreenShare)
                 }
             }
 
@@ -720,9 +734,15 @@ class AppContainer(val context: Context) {
                 val currentCall = callRepository.currentCall.value
                 val incomingCallId = payload.callId ?: ""
                 if (currentCall != null && currentCall.callId == incomingCallId && currentCall.state == CallState.CONNECTED) {
-                    Log.i(tag, "Received RENEGOTIATION_OFFER from ${payload.senderName}")
+                    val isScreenShareOffer = payload.isScreenShare == true
+                    Log.i(tag, "Received RENEGOTIATION_OFFER from ${payload.senderName} (isScreenShare=$isScreenShareOffer)")
                     callRepository.updateCallType(CallType.VIDEO)
-                    webRtcManager.upgradeToVideo()
+                    if (isScreenShareOffer) {
+                        webRtcManager.prepareRemoteVideoOnly()
+                        webRtcManager.setRemoteVideoEnabled(true, isScreenShare = true)
+                    } else {
+                        webRtcManager.upgradeToVideo()
+                    }
                     webRtcManager.setRemoteDescription(sdp, SessionDescription.Type.OFFER, autoAnswer = false)
                     webRtcManager.createRenegotiationAnswer { answerSdp ->
                         fcmSignalingClient.sendRenegotiationAnswer(payload.senderId, currentCall.callId, answerSdp)
@@ -775,13 +795,68 @@ class AppContainer(val context: Context) {
         }
     }
 
+    fun startScreenShare(mediaProjectionPermissionData: Intent) {
+        val session = callRepository.currentCall.value ?: return
+        if (session.isBluetoothVoice) {
+            callRepository.emitMessage("Screen sharing requires Wi-Fi LAN connection")
+            return
+        }
+        applicationScope.launch(Dispatchers.Main) {
+            PokieLocalService.notifyScreenShareChanged(context, active = true)
+            withTimeoutOrNull(1500L) {
+                PokieLocalService.isMediaProjectionForegroundActive.first { it }
+            }
+            var neededRenegotiation = false
+            val started = webRtcManager.startScreenShare(
+                mediaProjectionPermissionData = mediaProjectionPermissionData,
+                onNeedRenegotiation = { neededRenegotiation = true },
+                onSystemStopped = { stopScreenShare() }
+            )
+            if (started) {
+                if (neededRenegotiation) {
+                    callRepository.updateCallType(CallType.VIDEO)
+                    webRtcManager.createRenegotiationOffer { sdp ->
+                        fcmSignalingClient.sendRenegotiationOffer(
+                            targetId = session.peerId,
+                            callId = session.callId,
+                            sdp = sdp,
+                            isScreenShare = true
+                        )
+                    }
+                }
+                fcmSignalingClient.sendCameraState(
+                    targetId = session.peerId,
+                    callId = session.callId,
+                    isCameraOn = true,
+                    isScreenShare = true
+                )
+            } else {
+                PokieLocalService.notifyScreenShareChanged(context, active = false)
+                callRepository.emitMessage("Could not start screen sharing")
+            }
+        }
+    }
+
+    fun stopScreenShare() {
+        webRtcManager.stopScreenShare()
+        PokieLocalService.notifyScreenShareChanged(context, active = false)
+        val session = callRepository.currentCall.value ?: return
+        if (!session.isBluetoothVoice) {
+            val hasActiveCamera = webRtcManager.localVideoTrackFlow.value != null && webRtcManager.isVideoEnabled.value
+            fcmSignalingClient.sendCameraState(
+                targetId = session.peerId,
+                callId = session.callId,
+                isCameraOn = hasActiveCamera,
+                isScreenShare = false
+            )
+        }
+    }
+
     fun resetAudioModeToNormal() {
         try {
             ringtoneVibrationManager.stopAll()
+            proximityLock.release()
             webRtcManager.audioDeviceManager.resetToNormal()
-            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-            audioManager?.mode = AudioManager.MODE_NORMAL
-            audioManager?.isSpeakerphoneOn = false
             Log.d(tag, "App audio mode reset to MODE_NORMAL")
         } catch (e: Exception) {
             Log.w(tag, "Failed to reset audio mode: ${e.message}")

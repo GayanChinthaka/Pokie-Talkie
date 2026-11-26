@@ -17,6 +17,7 @@ import android.media.MediaRecorder
 import android.os.Build
 import android.util.Log
 import androidx.core.content.ContextCompat
+import com.pokerlanka.pokie_talkie.webrtc.WebRtcAudioDeviceManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -32,7 +33,8 @@ import java.util.UUID
 class BluetoothVoiceManager(
     private val context: Context,
     private val scope: CoroutineScope,
-    private val bluetoothAdapter: BluetoothAdapter?
+    private val bluetoothAdapter: BluetoothAdapter?,
+    private val audioDeviceManager: WebRtcAudioDeviceManager? = null
 ) {
     private val tag = "PokieBtVoice"
 
@@ -151,6 +153,7 @@ class BluetoothVoiceManager(
         isCallActive = true
         val token = System.currentTimeMillis()
         currentSessionToken = token
+        audioDeviceManager?.startCallAudio(enableSpeaker = false)
 
         val minRecordBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_IN, ENCODING)
         val recordBufSize = maxOf(minRecordBuf, BUFFER_SIZE * 4)
@@ -286,7 +289,12 @@ class BluetoothVoiceManager(
     }
 
     fun setSpeakerphone(on: Boolean) {
-        audioManager?.isSpeakerphoneOn = on
+        if (audioDeviceManager != null) {
+            audioDeviceManager.setSpeakerphoneOn(on)
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager?.isSpeakerphoneOn = on
+        }
     }
 
     fun stop() {

@@ -28,6 +28,7 @@ class UserPreferencesManager(context: Context) {
         private const val KEY_CALL_RINGTONE_ENABLED = "key_call_ringtone_enabled"
         private const val KEY_CALL_VIBRATION_ENABLED = "key_call_vibration_enabled"
         private const val KEY_RINGBACK_TONE_ENABLED = "key_ringback_tone_enabled"
+        private const val KEY_CALL_FEEDBACK_TONES_ENABLED = "key_call_feedback_tones_enabled"
         private const val KEY_MESSAGE_SOUND_ENABLED = "key_message_sound_enabled"
         private const val KEY_MESSAGE_VIBRATION_ENABLED = "key_message_vibration_enabled"
         private const val KEY_AUTO_CHECK_UPDATES = "key_auto_check_updates"
@@ -77,6 +78,9 @@ class UserPreferencesManager(context: Context) {
 
     private val _ringbackToneEnabledFlow = MutableStateFlow(prefs.getBoolean(KEY_RINGBACK_TONE_ENABLED, true))
     val ringbackToneEnabledFlow: StateFlow<Boolean> = _ringbackToneEnabledFlow.asStateFlow()
+
+    private val _callFeedbackTonesEnabledFlow = MutableStateFlow(prefs.getBoolean(KEY_CALL_FEEDBACK_TONES_ENABLED, true))
+    val callFeedbackTonesEnabledFlow: StateFlow<Boolean> = _callFeedbackTonesEnabledFlow.asStateFlow()
 
     private val _messageSoundEnabledFlow = MutableStateFlow(prefs.getBoolean(KEY_MESSAGE_SOUND_ENABLED, true))
     val messageSoundEnabledFlow: StateFlow<Boolean> = _messageSoundEnabledFlow.asStateFlow()
@@ -174,6 +178,11 @@ class UserPreferencesManager(context: Context) {
         _ringbackToneEnabledFlow.value = enabled
     }
 
+    fun setCallFeedbackTonesEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_CALL_FEEDBACK_TONES_ENABLED, enabled).apply()
+        _callFeedbackTonesEnabledFlow.value = enabled
+    }
+
     fun setMessageSoundEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_MESSAGE_SOUND_ENABLED, enabled).apply()
         _messageSoundEnabledFlow.value = enabled
@@ -204,6 +213,7 @@ class UserPreferencesManager(context: Context) {
     fun isCallRingtoneEnabled(): Boolean = _callRingtoneEnabledFlow.value
     fun isCallVibrationEnabled(): Boolean = _callVibrationEnabledFlow.value
     fun isRingbackToneEnabled(): Boolean = _ringbackToneEnabledFlow.value
+    fun isCallFeedbackTonesEnabled(): Boolean = _callFeedbackTonesEnabledFlow.value
     fun isMessageSoundEnabled(): Boolean = _messageSoundEnabledFlow.value
     fun isMessageVibrationEnabled(): Boolean = _messageVibrationEnabledFlow.value
     fun isAutoCheckUpdates(): Boolean = _autoCheckUpdatesFlow.value

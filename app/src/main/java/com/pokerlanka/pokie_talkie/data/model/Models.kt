@@ -131,6 +131,8 @@ data class SignalingPayload(
     val isBluetoothVoice: Boolean = false,
     @SerializedName("isCameraOn")
     val isCameraOn: Boolean? = null,
+    @SerializedName("isScreenShare")
+    val isScreenShare: Boolean? = null,
     @SerializedName("senderFcmToken")
     val senderFcmToken: String? = null,
     @SerializedName("senderIp")

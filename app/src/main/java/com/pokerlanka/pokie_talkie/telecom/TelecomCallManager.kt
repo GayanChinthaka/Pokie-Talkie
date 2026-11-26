@@ -20,6 +20,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
+import androidx.core.app.Person
 import com.pokerlanka.pokie_talkie.R
 import com.pokerlanka.pokie_talkie.data.model.CallSession
 import com.pokerlanka.pokie_talkie.data.model.CallState
@@ -203,7 +204,12 @@ class TelecomCallManager(
             state = CallState.RINGING_OUTGOING,
             isBluetoothVoice = isBluetoothVoice
         )
-        PokieLocalService.notifyCallStarted(context, isVideo = (callType == CallType.VIDEO && !isBluetoothVoice))
+        PokieLocalService.notifyCallStarted(
+            context = context,
+            isVideo = (callType == CallType.VIDEO && !isBluetoothVoice),
+            peerName = recipientName,
+            callId = callId
+        )
         callRepository.setCallSession(session)
         ringtoneVibrationManager.startRingbackTone()
 
@@ -307,6 +313,11 @@ class TelecomCallManager(
             activityOptionsBundle
         )
 
+        val callerPerson = Person.Builder()
+            .setName(callerName.ifBlank { "Family Member" })
+            .setImportant(true)
+            .build()
+
         val builder = NotificationCompat.Builder(context, CHANNEL_CALLS_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("Incoming ${if (callType == CallType.VIDEO) "Video" else "Voice"} Call")
@@ -317,8 +328,13 @@ class TelecomCallManager(
             .setAutoCancel(false)
             .setOngoing(true)
             .setContentIntent(pendingFullscreenIntent)
-            .addAction(R.drawable.ic_launcher_foreground, "Decline", declinePendingIntent)
-            .addAction(R.drawable.ic_launcher_foreground, "Answer", answerPendingIntent)
+            .setStyle(
+                NotificationCompat.CallStyle.forIncomingCall(
+                    callerPerson,
+                    declinePendingIntent,
+                    answerPendingIntent
+                ).setIsVideo(callType == CallType.VIDEO)
+            )
 
         // Always set full-screen intent so Android displays a heads-up floating banner
         // when device is in use, or launches the full-screen IncomingCallActivity on lockscreen
@@ -333,11 +349,8 @@ class TelecomCallManager(
         ringtoneVibrationManager.stopAll()
     }
 
-    fun cleanupAfterCall() {
-        webRtcManager.audioDeviceManager.resetToNormal()
-        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
-        audioManager?.mode = android.media.AudioManager.MODE_NORMAL
-        audioManager?.isSpeakerphoneOn = false
+    fun cleanupAfterCall(delayAudioResetMs: Long = 0L) {
+        webRtcManager.audioDeviceManager.resetToNormal(delayResetMs = delayAudioResetMs)
         PokieLocalService.notifyCallEnded(context)
     }
 

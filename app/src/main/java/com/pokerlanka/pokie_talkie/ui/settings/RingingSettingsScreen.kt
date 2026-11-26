@@ -46,6 +46,7 @@ fun RingingSettingsScreen(
     val callRingtoneEnabled by viewModel.callRingtoneEnabled.collectAsState()
     val callVibrationEnabled by viewModel.callVibrationEnabled.collectAsState()
     val ringbackToneEnabled by viewModel.ringbackToneEnabled.collectAsState()
+    val callFeedbackTonesEnabled by viewModel.callFeedbackTonesEnabled.collectAsState()
     val messageSoundEnabled by viewModel.messageSoundEnabled.collectAsState()
     val messageVibrationEnabled by viewModel.messageVibrationEnabled.collectAsState()
 
@@ -135,6 +136,22 @@ fun RingingSettingsScreen(
                                 )
                             },
                             onClick = { viewModel.setRingbackToneEnabled(!ringbackToneEnabled) }
+                        ),
+                        Material3SettingsItem(
+                            icon = Icons.AutoMirrored.Filled.VolumeUp,
+                            title = { Text("Connect & Disconnect Tones") },
+                            description = { Text("Soft audio cues when a call connects or ends") },
+                            trailingContent = {
+                                Switch(
+                                    checked = callFeedbackTonesEnabled,
+                                    onCheckedChange = { viewModel.setCallFeedbackTonesEnabled(it) },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                        checkedTrackColor = MaterialTheme.colorScheme.primary
+                                    )
+                                )
+                            },
+                            onClick = { viewModel.setCallFeedbackTonesEnabled(!callFeedbackTonesEnabled) }
                         )
                     )
                 )

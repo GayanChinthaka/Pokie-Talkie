@@ -6,13 +6,14 @@ import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.Ringtone
 import android.media.RingtoneManager
+import android.media.SoundPool
 import android.media.ToneGenerator
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
-
+import com.pokerlanka.pokie_talkie.R
 import com.pokerlanka.pokie_talkie.data.local.UserPreferencesManager
 
 /**
@@ -55,6 +56,82 @@ class RingtoneVibrationManager(
 
     // ---- Message notification ----
     private var messagePlayer: MediaPlayer? = null
+
+    // ---- Call connect / disconnect SoundPool feedback ----
+    private var soundPool: SoundPool? = null
+    private var connectedSoundId: Int = 0
+    private var disconnectedSoundId: Int = 0
+    private val loadedSounds = java.util.Collections.synchronizedSet(mutableSetOf<Int>())
+    @Volatile
+    private var pendingConnectPlay = false
+    @Volatile
+    private var pendingDisconnectPlay = false
+
+    private fun ensureSoundPool(): SoundPool {
+        soundPool?.let { return it }
+        val attrs = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
+        val pool = SoundPool.Builder()
+            .setMaxStreams(2)
+            .setAudioAttributes(attrs)
+            .build()
+        pool.setOnLoadCompleteListener { sp, sampleId, status ->
+            if (status == 0) {
+                loadedSounds.add(sampleId)
+                if (sampleId == connectedSoundId && pendingConnectPlay) {
+                    pendingConnectPlay = false
+                    sp.play(sampleId, 0.7f, 0.7f, 1, 0, 1.0f)
+                } else if (sampleId == disconnectedSoundId && pendingDisconnectPlay) {
+                    pendingDisconnectPlay = false
+                    sp.play(sampleId, 0.7f, 0.7f, 1, 0, 1.0f)
+                }
+            }
+        }
+        connectedSoundId = pool.load(context, R.raw.call_connected, 1)
+        disconnectedSoundId = pool.load(context, R.raw.call_disconnected, 1)
+        soundPool = pool
+        return pool
+    }
+
+    fun preloadCallTones() {
+        try {
+            ensureSoundPool()
+        } catch (e: Exception) {
+            Log.w(tag, "Failed to preload SoundPool call tones: ${e.message}")
+        }
+    }
+
+    fun playCallConnectedTone() {
+        val allowTones = userPreferencesManager?.isCallFeedbackTonesEnabled() ?: true
+        if (!allowTones || audioManager.ringerMode == AudioManager.RINGER_MODE_SILENT) return
+        try {
+            val pool = ensureSoundPool()
+            if (loadedSounds.contains(connectedSoundId)) {
+                pool.play(connectedSoundId, 0.7f, 0.7f, 1, 0, 1.0f)
+            } else {
+                pendingConnectPlay = true
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "Failed to play call connected tone: ${e.message}")
+        }
+    }
+
+    fun playCallDisconnectedTone() {
+        val allowTones = userPreferencesManager?.isCallFeedbackTonesEnabled() ?: true
+        if (!allowTones || audioManager.ringerMode == AudioManager.RINGER_MODE_SILENT) return
+        try {
+            val pool = ensureSoundPool()
+            if (loadedSounds.contains(disconnectedSoundId)) {
+                pool.play(disconnectedSoundId, 0.7f, 0.7f, 1, 0, 1.0f)
+            } else {
+                pendingDisconnectPlay = true
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "Failed to play call disconnected tone: ${e.message}")
+        }
+    }
 
     // ===========================================
     //  INCOMING CALL — Ringtone + Vibration

@@ -23,6 +23,7 @@ class SettingsViewModel(
     val callRingtoneEnabled: StateFlow<Boolean> = appContainer.userPreferencesManager.callRingtoneEnabledFlow
     val callVibrationEnabled: StateFlow<Boolean> = appContainer.userPreferencesManager.callVibrationEnabledFlow
     val ringbackToneEnabled: StateFlow<Boolean> = appContainer.userPreferencesManager.ringbackToneEnabledFlow
+    val callFeedbackTonesEnabled: StateFlow<Boolean> = appContainer.userPreferencesManager.callFeedbackTonesEnabledFlow
     val messageSoundEnabled: StateFlow<Boolean> = appContainer.userPreferencesManager.messageSoundEnabledFlow
     val messageVibrationEnabled: StateFlow<Boolean> = appContainer.userPreferencesManager.messageVibrationEnabledFlow
 
@@ -60,6 +61,10 @@ class SettingsViewModel(
 
     fun setRingbackToneEnabled(enabled: Boolean) {
         appContainer.userPreferencesManager.setRingbackToneEnabled(enabled)
+    }
+
+    fun setCallFeedbackTonesEnabled(enabled: Boolean) {
+        appContainer.userPreferencesManager.setCallFeedbackTonesEnabled(enabled)
     }
 
     fun setMessageSoundEnabled(enabled: Boolean) {

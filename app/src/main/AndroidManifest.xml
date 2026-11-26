@@ -30,6 +30,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
     <!-- Bluetooth Classic & BLE Permissions -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
@@ -108,7 +109,7 @@
         <service
             android:name=".service.PokieLocalService"
             android:exported="false"
-            android:foregroundServiceType="connectedDevice|phoneCall|microphone|camera" />
+            android:foregroundServiceType="connectedDevice|phoneCall|microphone|camera|mediaProjection" />
 
         <!-- Firebase Cloud Messaging Listener Service -->
         <service
@@ -119,13 +120,15 @@
             </intent-filter>
         </service>
 
-        <!-- Call Action Receiver for Notification Answer/Decline buttons -->
+        <!-- Call Action Receiver for Notification Answer/Decline/Hangup buttons -->
         <receiver
             android:name=".telecom.CallActionReceiver"
             android:exported="false">
             <intent-filter>
                 <action android:name="com.pokerlanka.pokie_talkie.ACTION_DECLINE_CALL" />
                 <action android:name="com.pokerlanka.pokie_talkie.ACTION_ANSWER_CALL" />
+                <action android:name="com.pokerlanka.pokie_talkie.ACTION_HANGUP_CALL" />
+                <action android:name="com.pokerlanka.pokie_talkie.ACTION_STOP_SCREEN_SHARE" />
             </intent-filter>
         </receiver>
 

@@ -49,6 +49,7 @@ class FcmSignalingClient(
         messageContent: String? = null,
         messageType: MessageType? = null,
         isCameraOn: Boolean? = null,
+        isScreenShare: Boolean? = null,
         isBluetoothVoice: Boolean = false
     ): SignalingPayload {
         val fcmToken = userPreferencesManager.getFcmToken().takeIf { it.isNotBlank() }
@@ -67,6 +68,7 @@ class FcmSignalingClient(
             messageContent = messageContent,
             messageType = messageType,
             isCameraOn = isCameraOn,
+            isScreenShare = isScreenShare,
             isBluetoothVoice = isBluetoothVoice,
             senderFcmToken = fcmToken,
             senderIp = localIp,
@@ -197,23 +199,35 @@ class FcmSignalingClient(
         dispatchPayload(targetId, payload)
     }
 
-    fun sendCameraState(targetId: String, callId: String, isCameraOn: Boolean) {
+    fun sendCameraState(
+        targetId: String,
+        callId: String,
+        isCameraOn: Boolean,
+        isScreenShare: Boolean? = null
+    ) {
         val payload = createPayload(
             type = SignalingType.CAMERA_STATE,
             targetId = targetId,
             callId = callId,
-            isCameraOn = isCameraOn
+            isCameraOn = isCameraOn,
+            isScreenShare = isScreenShare
         )
         dispatchPayload(targetId, payload)
     }
 
-    fun sendRenegotiationOffer(targetId: String, callId: String, sdp: SessionDescription) {
+    fun sendRenegotiationOffer(
+        targetId: String,
+        callId: String,
+        sdp: SessionDescription,
+        isScreenShare: Boolean = false
+    ) {
         val payload = createPayload(
             type = SignalingType.RENEGOTIATION_OFFER,
             targetId = targetId,
             callId = callId,
             callType = CallType.VIDEO,
-            sdp = sdp.description
+            sdp = sdp.description,
+            isScreenShare = isScreenShare
         )
         dispatchPayload(targetId, payload)
     }

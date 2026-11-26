@@ -10,6 +10,7 @@ import com.pokerlanka.pokie_talkie.PokieApp
 import com.pokerlanka.pokie_talkie.data.model.CallState
 import com.pokerlanka.pokie_talkie.data.model.CallType
 import com.pokerlanka.pokie_talkie.data.repository.CallRepository
+import com.pokerlanka.pokie_talkie.webrtc.AudioRoute
 import com.pokerlanka.pokie_talkie.webrtc.WebRtcManager
 
 class PokieConnection(
@@ -45,11 +46,21 @@ class PokieConnection(
         callRepository.updateCallState(CallState.CONNECTED)
         if (session.isBluetoothVoice) {
             // Microphone foreground type, so AudioRecord keeps working when the app is backgrounded
-            com.pokerlanka.pokie_talkie.service.PokieLocalService.notifyCallStarted(context, isVideo = false)
+            com.pokerlanka.pokie_talkie.service.PokieLocalService.notifyCallStarted(
+                context = context,
+                isVideo = false,
+                peerName = session.peerName,
+                callId = session.callId
+            )
             container.fcmSignalingClient.sendBluetoothCallAnswer(session.peerId, session.callId)
             container.bluetoothVoiceManager.startVoiceServer()
         } else {
-            com.pokerlanka.pokie_talkie.service.PokieLocalService.notifyCallStarted(context, isVideo = (callType == CallType.VIDEO))
+            com.pokerlanka.pokie_talkie.service.PokieLocalService.notifyCallStarted(
+                context = context,
+                isVideo = (callType == CallType.VIDEO),
+                peerName = session.peerName,
+                callId = session.callId
+            )
             webRtcManager.answerIncomingCall(callType)
         }
         // Answering from a headset or watch skips CallViewModel, so stop the ring and close the incoming-call notification here
@@ -89,6 +100,20 @@ class PokieConnection(
         Log.d(tag, "Telecom audio state changed: isMuted=${state?.isMuted}, route=${state?.route}")
         state?.let {
             webRtcManager.setAudioMuted(it.isMuted)
+            val mappedRoute = when (it.route) {
+                CallAudioState.ROUTE_BLUETOOTH -> AudioRoute.BLUETOOTH
+                CallAudioState.ROUTE_SPEAKER -> AudioRoute.SPEAKER
+                CallAudioState.ROUTE_WIRED_HEADSET -> AudioRoute.WIRED_HEADSET
+                CallAudioState.ROUTE_EARPIECE -> AudioRoute.EARPIECE
+                else -> null
+            }
+            if (mappedRoute != null && mappedRoute != webRtcManager.audioDeviceManager.activeRoute.value) {
+                // Only sync if Telecom explicitly changed route (e.g. car kit / watch / system UI)
+                // and target device exists in available routes
+                if (webRtcManager.audioDeviceManager.availableRoutes.value.any { opt -> opt.route == mappedRoute }) {
+                    webRtcManager.audioDeviceManager.selectAudioRoute(mappedRoute)
+                }
+            }
         }
     }
 

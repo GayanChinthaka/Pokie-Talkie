@@ -16,10 +16,16 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.Person
 import androidx.core.content.ContextCompat
 import com.pokerlanka.pokie_talkie.MainActivity
 import com.pokerlanka.pokie_talkie.PokieApp
 import com.pokerlanka.pokie_talkie.R
+import com.pokerlanka.pokie_talkie.telecom.CallActionReceiver
+import com.pokerlanka.pokie_talkie.telecom.TelecomCallManager
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 class PokieLocalService : Service() {
 
@@ -29,15 +35,24 @@ class PokieLocalService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var isCallActive = false
     private var isVideoCallActive = false
+    private var isScreenSharingActive = false
+    private var activePeerName = "Family Member"
+    private var activeCallId = ""
+    private var callStartTimeMs = System.currentTimeMillis()
 
     companion object {
         const val CHANNEL_SERVICE_ID = "pokie_proximity_service"
+        const val CHANNEL_ONGOING_CALL_ID = "pokie_ongoing_calls_v1"
         const val NOTIFICATION_ID = 52220
 
         const val ACTION_START = "com.pokerlanka.pokie_talkie.service.ACTION_START"
         const val ACTION_STOP = "com.pokerlanka.pokie_talkie.service.ACTION_STOP"
         const val ACTION_CALL_STARTED = "com.pokerlanka.pokie_talkie.service.ACTION_CALL_STARTED"
         const val ACTION_CALL_ENDED = "com.pokerlanka.pokie_talkie.service.ACTION_CALL_ENDED"
+        const val ACTION_SCREEN_SHARE_CHANGED = "com.pokerlanka.pokie_talkie.service.ACTION_SCREEN_SHARE_CHANGED"
+
+        private val _isMediaProjectionForegroundActive = MutableStateFlow(false)
+        val isMediaProjectionForegroundActive: StateFlow<Boolean> = _isMediaProjectionForegroundActive.asStateFlow()
 
         fun startService(context: Context) {
             val intent = Intent(context, PokieLocalService::class.java).apply {
@@ -62,11 +77,21 @@ class PokieLocalService : Service() {
         }
 
         const val EXTRA_IS_VIDEO = "extra_is_video"
+        const val EXTRA_PEER_NAME = "extra_peer_name"
+        const val EXTRA_CALL_ID = "extra_call_id"
+        const val EXTRA_IS_SCREEN_SHARING = "extra_is_screen_sharing"
 
-        fun notifyCallStarted(context: Context, isVideo: Boolean = false) {
+        fun notifyCallStarted(
+            context: Context,
+            isVideo: Boolean = false,
+            peerName: String = "Family Member",
+            callId: String = ""
+        ) {
             val intent = Intent(context, PokieLocalService::class.java).apply {
                 action = ACTION_CALL_STARTED
                 putExtra(EXTRA_IS_VIDEO, isVideo)
+                putExtra(EXTRA_PEER_NAME, peerName)
+                putExtra(EXTRA_CALL_ID, callId)
             }
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -79,7 +104,27 @@ class PokieLocalService : Service() {
             }
         }
 
+        fun notifyScreenShareChanged(context: Context, active: Boolean) {
+            if (!active) {
+                _isMediaProjectionForegroundActive.value = false
+            }
+            val intent = Intent(context, PokieLocalService::class.java).apply {
+                action = ACTION_SCREEN_SHARE_CHANGED
+                putExtra(EXTRA_IS_SCREEN_SHARING, active)
+            }
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                Log.w("PokieLocalService", "Failed to notify screen share changed: ${e.message}")
+            }
+        }
+
         fun notifyCallEnded(context: Context) {
+            _isMediaProjectionForegroundActive.value = false
             val intent = Intent(context, PokieLocalService::class.java).apply {
                 action = ACTION_CALL_ENDED
             }
@@ -103,6 +148,10 @@ class PokieLocalService : Service() {
 
         when (action) {
             ACTION_STOP -> {
+                isCallActive = false
+                isVideoCallActive = false
+                isScreenSharingActive = false
+                _isMediaProjectionForegroundActive.value = false
                 releaseLocks()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
@@ -111,13 +160,23 @@ class PokieLocalService : Service() {
             ACTION_CALL_STARTED -> {
                 isCallActive = true
                 isVideoCallActive = intent?.getBooleanExtra(EXTRA_IS_VIDEO, false) ?: false
+                activePeerName = intent?.getStringExtra(EXTRA_PEER_NAME)?.takeIf { it.isNotBlank() } ?: "Family Member"
+                activeCallId = intent?.getStringExtra(EXTRA_CALL_ID) ?: ""
+                callStartTimeMs = System.currentTimeMillis()
                 acquireLocks()
                 acquireCallWakeLock()
-                updateForegroundNotification(inCall = true, isVideo = isVideoCallActive)
+                updateForegroundNotification(inCall = true, isVideo = isVideoCallActive, isScreenSharing = isScreenSharingActive)
+            }
+            ACTION_SCREEN_SHARE_CHANGED -> {
+                isScreenSharingActive = intent?.getBooleanExtra(EXTRA_IS_SCREEN_SHARING, false) ?: false
+                isCallActive = true
+                updateForegroundNotification(inCall = true, isVideo = isVideoCallActive, isScreenSharing = isScreenSharingActive)
             }
             ACTION_CALL_ENDED -> {
                 isCallActive = false
                 isVideoCallActive = false
+                isScreenSharingActive = false
+                _isMediaProjectionForegroundActive.value = false
                 releaseCallWakeLock()
                 releaseLocks()
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -126,7 +185,7 @@ class PokieLocalService : Service() {
             }
             ACTION_START -> {
                 if (isCallActive) {
-                    updateForegroundNotification(inCall = true, isVideo = isVideoCallActive)
+                    updateForegroundNotification(inCall = true, isVideo = isVideoCallActive, isScreenSharing = isScreenSharingActive)
                 }
             }
         }
@@ -138,8 +197,12 @@ class PokieLocalService : Service() {
         return START_STICKY
     }
 
-    private fun updateForegroundNotification(inCall: Boolean, isVideo: Boolean = false) {
-        val notification = buildServiceNotification(inCall)
+    private fun updateForegroundNotification(
+        inCall: Boolean,
+        isVideo: Boolean = false,
+        isScreenSharing: Boolean = false
+    ) {
+        val notification = buildServiceNotification(inCall, isVideo, isScreenSharing)
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -162,12 +225,29 @@ class PokieLocalService : Service() {
                     if (isVideo) {
                         callServiceType = callServiceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
                     }
+                    if (isScreenSharing) {
+                        callServiceType = callServiceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                    }
 
                     try {
                         startForeground(NOTIFICATION_ID, notification, callServiceType)
+                        _isMediaProjectionForegroundActive.value = isScreenSharing
                         return
                     } catch (e: Exception) {
-                        Log.w(tag, "startForeground with callServiceType failed ($e), falling back to CONNECTED_DEVICE")
+                        Log.w(tag, "startForeground with callServiceType failed ($e), falling back")
+                        if (isScreenSharing) {
+                            try {
+                                startForeground(
+                                    NOTIFICATION_ID,
+                                    notification,
+                                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                                )
+                                _isMediaProjectionForegroundActive.value = true
+                                return
+                            } catch (e2: Exception) {
+                                Log.e(tag, "Fallback MEDIA_PROJECTION startForeground failed: ${e2.message}")
+                            }
+                        }
                     }
                 }
 
@@ -179,18 +259,24 @@ class PokieLocalService : Service() {
                 }
             } else {
                 startForeground(NOTIFICATION_ID, notification)
+                _isMediaProjectionForegroundActive.value = isScreenSharing
             }
         } catch (e: Exception) {
             Log.w(tag, "startForeground failed, falling back to simple startForeground: ${e.message}")
             try {
                 startForeground(NOTIFICATION_ID, notification)
+                _isMediaProjectionForegroundActive.value = isScreenSharing
             } catch (e2: Exception) {
                 Log.e(tag, "Failed to startForeground: ${e2.message}")
             }
         }
     }
 
-    private fun buildServiceNotification(inCall: Boolean): Notification {
+    private fun buildServiceNotification(
+        inCall: Boolean,
+        isVideo: Boolean = false,
+        isScreenSharing: Boolean = false
+    ): Notification {
         val intent = Intent(this, MainActivity::class.java).apply {
             this.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -201,13 +287,69 @@ class PokieLocalService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val title = if (inCall) "Pokie-Talkie Active Call" else "Pokie-Talkie Proximity Active"
-        val message = if (inCall) "Call in progress on local network" else "Ready for LAN & Bluetooth family calls & messages"
+        if (inCall) {
+            val hangUpIntent = Intent(this, CallActionReceiver::class.java).apply {
+                action = CallActionReceiver.ACTION_HANGUP_CALL
+                putExtra(TelecomCallManager.EXTRA_CALL_ID, activeCallId)
+            }
+            val hangUpPendingIntent = PendingIntent.getBroadcast(
+                this,
+                52002,
+                hangUpIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val person = Person.Builder()
+                .setName(activePeerName)
+                .setImportant(true)
+                .build()
+
+            val builder = NotificationCompat.Builder(this, CHANNEL_ONGOING_CALL_ID)
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setContentTitle(activePeerName)
+                .setContentText(
+                    when {
+                        isScreenSharing -> "Sharing your screen"
+                        isVideo -> "Video call in progress"
+                        else -> "Voice call in progress"
+                    }
+                )
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setCategory(NotificationCompat.CATEGORY_CALL)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setOngoing(true)
+                .setUsesChronometer(true)
+                .setWhen(callStartTimeMs)
+                .setContentIntent(pendingIntent)
+                .setStyle(
+                    NotificationCompat.CallStyle.forOngoingCall(person, hangUpPendingIntent)
+                        .setIsVideo(isVideo || isScreenSharing)
+                )
+
+            if (isScreenSharing) {
+                val stopShareIntent = Intent(this, CallActionReceiver::class.java).apply {
+                    action = CallActionReceiver.ACTION_STOP_SCREEN_SHARE
+                }
+                val stopSharePendingIntent = PendingIntent.getBroadcast(
+                    this,
+                    52003,
+                    stopShareIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                builder.addAction(
+                    R.drawable.ic_launcher_foreground,
+                    "Stop Sharing",
+                    stopSharePendingIntent
+                )
+            }
+
+            return builder.build()
+        }
 
         return NotificationCompat.Builder(this, CHANNEL_SERVICE_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle(title)
-            .setContentText(message)
+            .setContentTitle("Pokie-Talkie Proximity Active")
+            .setContentText("Ready for LAN & Bluetooth family calls & messages")
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .setContentIntent(pendingIntent)
@@ -217,7 +359,7 @@ class PokieLocalService : Service() {
     private fun createServiceNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            val channel = NotificationChannel(
+            val serviceChannel = NotificationChannel(
                 CHANNEL_SERVICE_ID,
                 "Pokie Proximity Service",
                 NotificationManager.IMPORTANCE_LOW
@@ -225,7 +367,18 @@ class PokieLocalService : Service() {
                 description = "Keeps local WiFi and Bluetooth listeners active for incoming calls and messages"
                 setShowBadge(false)
             }
-            notificationManager.createNotificationChannel(channel)
+            val ongoingCallChannel = NotificationChannel(
+                CHANNEL_ONGOING_CALL_ID,
+                getString(R.string.channel_ongoing_calls_name),
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = getString(R.string.channel_ongoing_calls_desc)
+                setSound(null, null)
+                enableVibration(false)
+                setShowBadge(false)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
+            notificationManager.createNotificationChannels(listOf(serviceChannel, ongoingCallChannel))
         }
     }
 

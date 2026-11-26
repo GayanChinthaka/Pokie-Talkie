@@ -1,6 +1,7 @@
 package com.pokerlanka.pokie_talkie.webrtc
 
 import android.content.Context
+import android.content.Intent
 import android.util.Log
 import com.pokerlanka.pokie_talkie.data.model.CallType
 import com.pokerlanka.pokie_talkie.data.model.IceCandidateModel
@@ -26,6 +27,7 @@ import org.webrtc.MediaStream
 import org.webrtc.PeerConnection
 import org.webrtc.PeerConnectionFactory
 import org.webrtc.RtpReceiver
+import org.webrtc.RtpSender
 import org.webrtc.RtpTransceiver
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
@@ -50,9 +52,19 @@ class WebRtcManager(
     private var localVideoTrack: VideoTrack? = null
     private var videoCapturer: CameraVideoCapturer? = null
     private var surfaceTextureHelper: SurfaceTextureHelper? = null
+    private var screenShareCapturer: ScreenShareCapturer? = null
+    private var screenSurfaceTextureHelper: SurfaceTextureHelper? = null
+    private var screenVideoSource: VideoSource? = null
+    private var screenVideoTrack: VideoTrack? = null
+    private var activeVideoSender: RtpSender? = null
+    private var wasCameraEnabledBeforeScreenShare: Boolean = true
     private var iceDisconnectTimerJob: Job? = null
 
     val audioDeviceManager = WebRtcAudioDeviceManager(context)
+
+    val activeAudioRoute: StateFlow<AudioRoute> = audioDeviceManager.activeRoute
+    val availableAudioRoutes: StateFlow<List<AudioRouteOption>> = audioDeviceManager.availableRoutes
+    val isSpeakerOn: StateFlow<Boolean> = audioDeviceManager.isSpeakerOn
 
     private val _localVideoTrackFlow = MutableStateFlow<VideoTrack?>(null)
     val localVideoTrackFlow: StateFlow<VideoTrack?> = _localVideoTrackFlow.asStateFlow()
@@ -72,8 +84,11 @@ class WebRtcManager(
     private val _isRemoteVideoEnabled = MutableStateFlow(true)
     val isRemoteVideoEnabled: StateFlow<Boolean> = _isRemoteVideoEnabled.asStateFlow()
 
-    private val _isSpeakerOn = MutableStateFlow(false)
-    val isSpeakerOn: StateFlow<Boolean> = _isSpeakerOn.asStateFlow()
+    private val _isScreenSharing = MutableStateFlow(false)
+    val isScreenSharing: StateFlow<Boolean> = _isScreenSharing.asStateFlow()
+
+    private val _isRemoteScreenSharing = MutableStateFlow(false)
+    val isRemoteScreenSharing: StateFlow<Boolean> = _isRemoteScreenSharing.asStateFlow()
 
     var onLocalSdpCreated: ((SessionDescription) -> Unit)? = null
     var onLocalIceCandidate: ((IceCandidateModel) -> Unit)? = null
@@ -160,7 +175,6 @@ class WebRtcManager(
         }
 
         audioDeviceManager.startCallAudio(enableSpeaker = (callType == CallType.VIDEO))
-        _isSpeakerOn.value = audioDeviceManager.isSpeakerphoneOn()
     }
 
     @Synchronized
@@ -278,7 +292,7 @@ class WebRtcManager(
             peerConnection?.addTrack(it, listOf("ARDAMS"))
         }
         localVideoTrack?.let {
-            peerConnection?.addTrack(it, listOf("ARDAMS"))
+            activeVideoSender = peerConnection?.addTrack(it, listOf("ARDAMS"))
         }
     }
 
@@ -432,9 +446,156 @@ class WebRtcManager(
         return newVideo
     }
 
-    fun setRemoteVideoEnabled(enabled: Boolean) {
+    fun setRemoteVideoEnabled(enabled: Boolean, isScreenShare: Boolean? = null) {
         _isRemoteVideoEnabled.value = enabled
-        Log.i(tag, "Remote video enabled set to: $enabled")
+        if (isScreenShare != null) {
+            _isRemoteScreenSharing.value = isScreenShare && enabled
+        } else if (!enabled) {
+            _isRemoteScreenSharing.value = false
+        }
+        Log.i(tag, "Remote video enabled set to: $enabled (screenShare=$isScreenShare)")
+    }
+
+    fun prepareRemoteVideoOnly() {
+        audioDeviceManager.onUpgradeToVideo()
+        _isRemoteVideoEnabled.value = true
+    }
+
+    @Synchronized
+    fun startScreenShare(
+        mediaProjectionPermissionData: Intent,
+        onNeedRenegotiation: () -> Unit,
+        onSystemStopped: () -> Unit
+    ): Boolean {
+        if (_isScreenSharing.value) return true
+        val factory = peerConnectionFactory ?: return false
+
+        return try {
+            wasCameraEnabledBeforeScreenShare = _isVideoEnabled.value
+            try {
+                videoCapturer?.stopCapture()
+            } catch (e: Exception) {
+                Log.w(tag, "Error pausing camera for screen share: ${e.message}")
+            }
+            localVideoTrack?.setEnabled(false)
+
+            screenSurfaceTextureHelper?.dispose()
+            screenSurfaceTextureHelper = SurfaceTextureHelper.create("ScreenCaptureThread", eglBase.eglBaseContext)
+
+            val source = factory.createVideoSource(true)
+            val capturer = ScreenShareCapturer(
+                context = context,
+                mediaProjectionPermissionData = mediaProjectionPermissionData,
+                onSystemStopped = onSystemStopped
+            )
+            capturer.initialize(screenSurfaceTextureHelper!!, source.capturerObserver)
+            capturer.startCapture()
+
+            val track = factory.createVideoTrack("ARDAMSs0", source).apply {
+                setEnabled(true)
+            }
+
+            screenShareCapturer = capturer
+            screenVideoSource = source
+            screenVideoTrack = track
+            _isScreenSharing.value = true
+            _localVideoTrackFlow.value = track
+
+            val pc = peerConnection
+            val existingVideoSender = activeVideoSender
+                ?: pc?.senders?.firstOrNull { it.track()?.kind() == "video" }
+
+            if (existingVideoSender != null) {
+                activeVideoSender = existingVideoSender
+                existingVideoSender.setTrack(track, false)
+                Log.i(tag, "Swapped existing video RtpSender track to ScreenShare track")
+            } else if (pc != null) {
+                activeVideoSender = pc.addTrack(track, listOf("ARDAMS"))
+                Log.i(tag, "Added new ScreenShare video track to PeerConnection; requesting renegotiation")
+                onNeedRenegotiation()
+            }
+
+            audioDeviceManager.onUpgradeToVideo()
+            true
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to start screen share: ${e.message}", e)
+            cleanupScreenShareResources()
+            false
+        }
+    }
+
+    @Synchronized
+    fun stopScreenShare() {
+        if (!_isScreenSharing.value && screenShareCapturer == null) return
+        Log.i(tag, "Stopping screen share")
+
+        val currentScreenTrack = screenVideoTrack
+        val pc = peerConnection
+        val videoSender = activeVideoSender
+            ?: pc?.senders?.firstOrNull {
+                it.track() === currentScreenTrack || it.track()?.kind() == "video"
+            }
+
+        val cameraTrack = localVideoTrack
+        if (videoSender != null) {
+            if (cameraTrack != null) {
+                videoSender.setTrack(cameraTrack, false)
+            } else {
+                videoSender.setTrack(null, false)
+            }
+        }
+
+        cleanupScreenShareResources()
+
+        if (cameraTrack != null) {
+            if (wasCameraEnabledBeforeScreenShare) {
+                try {
+                    videoCapturer?.startCapture(1280, 720, 30)
+                } catch (e: Exception) {
+                    try {
+                        videoCapturer?.startCapture(640, 480, 30)
+                    } catch (e2: Exception) {
+                        Log.w(tag, "Failed to restart camera after screen share: ${e2.message}")
+                    }
+                }
+            }
+            cameraTrack.setEnabled(wasCameraEnabledBeforeScreenShare)
+            _isVideoEnabled.value = wasCameraEnabledBeforeScreenShare
+            _localVideoTrackFlow.value = cameraTrack
+        } else {
+            _localVideoTrackFlow.value = null
+        }
+    }
+
+    private fun cleanupScreenShareResources() {
+        _isScreenSharing.value = false
+        val sc = screenShareCapturer
+        screenShareCapturer = null
+        sc?.stopAndDispose()
+
+        val svt = screenVideoTrack
+        screenVideoTrack = null
+        try {
+            svt?.dispose()
+        } catch (e: Exception) {
+            Log.w(tag, "screenVideoTrack dispose error: ${e.message}")
+        }
+
+        val svs = screenVideoSource
+        screenVideoSource = null
+        try {
+            svs?.dispose()
+        } catch (e: Exception) {
+            Log.w(tag, "screenVideoSource dispose error: ${e.message}")
+        }
+
+        val ssth = screenSurfaceTextureHelper
+        screenSurfaceTextureHelper = null
+        try {
+            ssth?.dispose()
+        } catch (e: Exception) {
+            Log.w(tag, "screenSurfaceTextureHelper dispose error: ${e.message}")
+        }
     }
 
     @Synchronized
@@ -476,20 +637,22 @@ class WebRtcManager(
         }
 
         // 2. Attach local video track to existing PeerConnection if not attached
-        peerConnection?.let { pc ->
-            localVideoTrack?.let { track ->
-                val senders = pc.senders
-                val hasVideoSender = senders.any { it.track()?.kind() == "video" }
-                if (!hasVideoSender) {
-                    pc.addTrack(track, listOf("ARDAMS"))
-                    Log.i(tag, "Added localVideoTrack to active PeerConnection on upgrade")
-                }
+        val pc = peerConnection
+        val track = localVideoTrack
+        if (pc != null && track != null) {
+            val hasVideoSender = pc.senders.any { it.track()?.kind() == "video" }
+            val sender = activeVideoSender
+            if (sender != null && !hasVideoSender) {
+                sender.setTrack(track, false)
+                Log.i(tag, "Reattached localVideoTrack to existing RtpSender on upgrade")
+            } else if (!hasVideoSender) {
+                activeVideoSender = pc.addTrack(track, listOf("ARDAMS"))
+                Log.i(tag, "Added localVideoTrack to active PeerConnection on upgrade")
             }
         }
 
-        // 3. Switch to speakerphone for video call
-        audioDeviceManager.setSpeakerphoneOn(true)
-        _isSpeakerOn.value = true
+        // 3. Upgrade audio routing (preserves Bluetooth/Wired headset, switches Earpiece -> Speaker)
+        audioDeviceManager.onUpgradeToVideo()
     }
 
     fun createRenegotiationOffer(onReady: (SessionDescription) -> Unit) {
@@ -554,9 +717,12 @@ class WebRtcManager(
         }, constraints)
     }
 
+    fun selectAudioRoute(route: AudioRoute) {
+        audioDeviceManager.selectAudioRoute(route)
+    }
+
     fun toggleSpeaker(): Boolean {
-        val newSpeaker = !_isSpeakerOn.value
-        _isSpeakerOn.value = newSpeaker
+        val newSpeaker = !audioDeviceManager.isSpeakerphoneOn()
         audioDeviceManager.setSpeakerphoneOn(newSpeaker)
         return newSpeaker
     }
@@ -588,13 +754,15 @@ class WebRtcManager(
     }
 
     @Synchronized
-    fun endCall() {
+    fun endCall(delayAudioResetMs: Long = 0L) {
         try {
             iceDisconnectTimerJob?.cancel()
             iceDisconnectTimerJob = null
 
+            cleanupScreenShareResources()
+
             try {
-                audioDeviceManager.stopCallAudio()
+                audioDeviceManager.stopCallAudio(delayResetMs = delayAudioResetMs)
             } catch (e: Exception) {
                 Log.w(tag, "stopCallAudio error: ${e.message}")
             }
@@ -651,6 +819,7 @@ class WebRtcManager(
 
             val pc = peerConnection
             peerConnection = null
+            activeVideoSender = null
             try {
                 pc?.close()
                 pc?.dispose()
@@ -662,12 +831,13 @@ class WebRtcManager(
             synchronized(pendingIceCandidates) {
                 pendingIceCandidates.clear()
             }
-            _isSpeakerOn.value = false
             _remoteVideoTrackFlow.value = null
             _isCallConnected.value = false
             _isAudioMuted.value = false
             _isVideoEnabled.value = true
             _isRemoteVideoEnabled.value = true
+            _isScreenSharing.value = false
+            _isRemoteScreenSharing.value = false
             Log.d(tag, "WebRTC endCall teardown completed successfully")
         } catch (e: Exception) {
             Log.e(tag, "Error closing WebRTC session: ${e.message}")

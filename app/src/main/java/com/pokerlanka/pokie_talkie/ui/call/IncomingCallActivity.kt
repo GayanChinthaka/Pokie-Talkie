@@ -45,6 +45,20 @@ class IncomingCallActivity : ComponentActivity() {
         setContent {
             val themeMode by container.userPreferencesManager.themeModeFlow.collectAsState()
             val accentColor by container.userPreferencesManager.themeAccentColorFlow.collectAsState()
+            val currentCall by container.callRepository.currentCall.collectAsState()
+            val isScreenSharing by container.webRtcManager.isScreenSharing.collectAsState()
+
+            LaunchedEffect(currentCall?.state, currentCall?.callType, isScreenSharing) {
+                val keepScreenOn = currentCall?.state == CallState.RINGING_INCOMING ||
+                    (currentCall?.state == CallState.CONNECTED &&
+                        (currentCall?.callType == com.pokerlanka.pokie_talkie.data.model.CallType.VIDEO || isScreenSharing))
+                if (keepScreenOn) {
+                    window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                } else {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
+            }
+
             PokieTalkieTheme(themeMode = themeMode, accentColor = accentColor) {
                 CallScreen(
                     viewModel = viewModel,

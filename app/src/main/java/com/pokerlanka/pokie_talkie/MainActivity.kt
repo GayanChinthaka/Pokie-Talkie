@@ -110,10 +110,13 @@ class MainActivity : ComponentActivity() {
                 ) {
                     val navController = rememberNavController()
                     val currentCall by container.callRepository.currentCall.collectAsState()
+                    val isScreenSharing by container.webRtcManager.isScreenSharing.collectAsState()
                     val chatPeerId = pendingChatPeerId.value
 
-                    DisposableEffect(currentCall?.state) {
-                        if (currentCall?.state == CallState.CONNECTED) {
+                    DisposableEffect(currentCall?.state, currentCall?.callType, isScreenSharing) {
+                        val keepScreenOn = currentCall?.state == CallState.CONNECTED &&
+                            (currentCall?.callType == com.pokerlanka.pokie_talkie.data.model.CallType.VIDEO || isScreenSharing)
+                        if (keepScreenOn) {
                             window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                         } else {
                             window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
