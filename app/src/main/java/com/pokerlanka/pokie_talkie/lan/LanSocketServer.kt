@@ -33,7 +33,22 @@ class LanSocketServer(
     var serverPort: Int = 52220
         private set
 
+    @Volatile
+    private var cachedLocalIp: String? = null
+    @Volatile
+    private var cachedIpTimestampMs: Long = 0L
+
+    fun invalidateCachedIp() {
+        cachedLocalIp = null
+        cachedIpTimestampMs = 0L
+    }
+
     fun getLocalIpAddress(): String? {
+        val now = System.currentTimeMillis()
+        val cached = cachedLocalIp
+        if (!cached.isNullOrBlank() && now - cachedIpTimestampMs < 30_000L) {
+            return cached
+        }
         try {
             val interfaces = java.net.NetworkInterface.getNetworkInterfaces() ?: return null
             while (interfaces.hasMoreElements()) {
@@ -45,6 +60,8 @@ class LanSocketServer(
                     if (!addr.isLoopbackAddress && addr is java.net.Inet4Address) {
                         val host = addr.hostAddress
                         if (!host.isNullOrBlank() && !host.startsWith("127.")) {
+                            cachedLocalIp = host
+                            cachedIpTimestampMs = now
                             return host
                         }
                     }

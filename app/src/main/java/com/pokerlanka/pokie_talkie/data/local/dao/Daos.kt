@@ -5,7 +5,6 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
-import com.pokerlanka.pokie_talkie.data.local.entity.CallLogEntity
 import com.pokerlanka.pokie_talkie.data.local.entity.ContactEntity
 import com.pokerlanka.pokie_talkie.data.local.entity.MessageEntity
 import com.pokerlanka.pokie_talkie.data.model.MessageStatus
@@ -104,16 +103,4 @@ interface ContactDao {
 
     @Query("DELETE FROM contacts")
     suspend fun deleteAllContacts()
-}
-
-@Dao
-interface CallLogDao {
-    @Query("SELECT * FROM call_logs ORDER BY timestamp DESC")
-    fun getAllCallLogs(): Flow<List<CallLogEntity>>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertCallLog(callLog: CallLogEntity)
-
-    @Query("DELETE FROM call_logs")
-    suspend fun clearAllCallLogs()
 }

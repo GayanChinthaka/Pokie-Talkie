@@ -1,9 +1,7 @@
 package com.pokerlanka.pokie_talkie.data.repository
 
-import com.pokerlanka.pokie_talkie.data.local.dao.CallLogDao
 import com.pokerlanka.pokie_talkie.data.local.dao.ContactDao
 import com.pokerlanka.pokie_talkie.data.local.dao.MessageDao
-import com.pokerlanka.pokie_talkie.data.local.entity.CallLogEntity
 import com.pokerlanka.pokie_talkie.data.local.entity.ContactEntity
 import com.pokerlanka.pokie_talkie.data.local.entity.MessageEntity
 import com.pokerlanka.pokie_talkie.data.model.CallSession
@@ -251,7 +249,6 @@ class ContactRepository(
 }
 
 class CallRepository(
-    private val callLogDao: CallLogDao,
     private val scope: CoroutineScope? = null
 ) {
     private val _currentCall = MutableStateFlow<CallSession?>(null)
@@ -325,24 +322,11 @@ class CallRepository(
         _currentCall.value = _currentCall.value?.copy(durationSeconds = duration)
     }
 
-    suspend fun endCallAndLog(finalState: CallState = CallState.DISCONNECTED) {
+    fun endCall(finalState: CallState = CallState.DISCONNECTED) {
         stopDurationTimer()
         val session = _currentCall.value ?: return
-        val wasConnected = session.state == CallState.CONNECTED
-        val log = CallLogEntity(
-            id = session.callId,
-            peerId = session.peerId,
-            peerName = session.peerName,
-            callType = session.callType,
-            isIncoming = session.isIncoming,
-            wasConnected = wasConnected,
-            durationSeconds = session.durationSeconds,
-            timestamp = session.startTimestamp
-        )
-        callLogDao.insertCallLog(log)
         _videoUpgradeRequest.value = null
-        val latest = _currentCall.value ?: session
-        _currentCall.value = latest.copy(state = finalState)
+        _currentCall.value = session.copy(state = finalState)
     }
 
     fun clearSession() {
@@ -350,6 +334,4 @@ class CallRepository(
         _videoUpgradeRequest.value = null
         _currentCall.value = null
     }
-
-    fun getCallLogs(): Flow<List<CallLogEntity>> = callLogDao.getAllCallLogs()
 }

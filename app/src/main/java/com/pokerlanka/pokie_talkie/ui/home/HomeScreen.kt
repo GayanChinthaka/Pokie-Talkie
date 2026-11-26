@@ -87,7 +87,6 @@ fun HomeScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
 
-    var editNameInput by remember(state.myDeviceName) { mutableStateOf(state.myDeviceName) }
     var addContactName by remember { mutableStateOf("") }
     var addContactIp by remember { mutableStateOf("") }
 
@@ -233,7 +232,7 @@ fun HomeScreen(
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
-                                    imageVector = Icons.Default.Wifi,
+                                    imageVector = if (state.connectionMode == ConnectionMode.BLUETOOTH) Icons.Default.Bluetooth else Icons.Default.Wifi,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(36.dp)
@@ -242,14 +241,22 @@ fun HomeScreen(
                         }
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "Scanning Local WiFi Subnet...",
+                            text = if (state.connectionMode == ConnectionMode.BLUETOOTH) {
+                                "No Paired Bluetooth Devices Found"
+                            } else {
+                                "Scanning Local WiFi Subnet..."
+                            },
                             color = MaterialTheme.colorScheme.onBackground,
                             fontWeight = FontWeight.SemiBold,
                             style = MaterialTheme.typography.titleMedium
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Open Pokie Talkie on other family phones connected to the same WiFi. They will appear here automatically in real time!",
+                            text = if (state.connectionMode == ConnectionMode.BLUETOOTH) {
+                                "Pair your family phones in Android Bluetooth settings to chat & call over Bluetooth with zero internet."
+                            } else {
+                                "Open Pokie Talkie on other family phones connected to the same WiFi. They will appear here automatically in real time!"
+                            },
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 13.sp,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -282,49 +289,6 @@ fun HomeScreen(
                 }
             }
         }
-    }
-
-    // Edit Profile Name Dialog
-    if (state.showEditProfileDialog) {
-        AlertDialog(
-            onDismissRequest = viewModel::closeEditProfileDialog,
-            title = { Text("Your Profile Name", color = MaterialTheme.colorScheme.onSurface) },
-            text = {
-                Column {
-                    Text(
-                        "This name will be broadcast to family members on your WiFi network.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 13.sp
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = editNameInput,
-                        onValueChange = { editNameInput = it },
-                        placeholder = { Text("e.g. Dad, Mom, Living Room") },
-                        singleLine = true,
-                        colors = TextFieldDefaults.colors(
-                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = { viewModel.saveProfileName(editNameInput) },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                ) {
-                    Text("Save")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = viewModel::closeEditProfileDialog) {
-                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            },
-            containerColor = MaterialTheme.colorScheme.surface
-        )
     }
 
     // Add Contact Dialog

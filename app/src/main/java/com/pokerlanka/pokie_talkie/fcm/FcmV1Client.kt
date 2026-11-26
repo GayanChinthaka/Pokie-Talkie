@@ -18,7 +18,10 @@ import java.security.KeyFactory
 import java.security.Signature
 import java.security.spec.PKCS8EncodedKeySpec
 
-class FcmV1Client(private val context: Context) {
+class FcmV1Client(
+    private val context: Context,
+    private val gson: Gson = Gson()
+) {
 
     private val tag = "FcmV1Client"
 
@@ -26,7 +29,6 @@ class FcmV1Client(private val context: Context) {
         // FCM rejects data payloads over 4096 bytes; keep some margin
         private const val FCM_DATA_LIMIT_BYTES = 4000
     }
-    private val gson = Gson()
 
     private var projectId: String = ""
     private var clientEmail: String = ""
@@ -45,7 +47,16 @@ class FcmV1Client(private val context: Context) {
 
     private fun loadServiceAccount() {
         try {
-            val inputStream = context.resources.openRawResource(R.raw.firebase_service_account)
+            val resId = context.resources.getIdentifier(
+                "firebase_service_account",
+                "raw",
+                context.packageName
+            )
+            if (resId == 0) {
+                Log.w(tag, "firebase_service_account.json not bundled in res/raw; FCM v1 push disabled")
+                return
+            }
+            val inputStream = context.resources.openRawResource(resId)
             val jsonText = inputStream.bufferedReader().use { it.readText() }
             val json = JSONObject(jsonText)
             projectId = json.optString("project_id", "")

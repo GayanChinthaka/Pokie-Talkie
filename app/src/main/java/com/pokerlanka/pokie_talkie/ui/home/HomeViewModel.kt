@@ -30,7 +30,6 @@ data class HomeUiState(
     val activeTransport: ActiveTransportMode = ActiveTransportMode.WIFI,
     val connectionMode: ConnectionMode = ConnectionMode.WIFI,
     val isScanningLan: Boolean = true,
-    val showEditProfileDialog: Boolean = false,
     val showAddContactDialog: Boolean = false
 )
 
@@ -46,19 +45,9 @@ class HomeViewModel(
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    private val _showEditProfileDialog = MutableStateFlow(false)
-    val showEditProfileDialog: StateFlow<Boolean> = _showEditProfileDialog.asStateFlow()
-
     private val _showAddContactDialog = MutableStateFlow(false)
     val showAddContactDialog: StateFlow<Boolean> = _showAddContactDialog.asStateFlow()
 
-    init {
-        viewModelScope.launch {
-            appContainer.bluetoothTransportManager.syncPairedDevicesToContacts()
-        }
-    }
-
-    private val dialogsFlow = combine(_showEditProfileDialog, _showAddContactDialog) { edit, add -> Pair(edit, add) }
     private val userAndTransportFlow = combine(
         userPrefs.userNameFlow,
         appContainer.connectivityMonitor.activeTransport,
@@ -70,8 +59,8 @@ class HomeViewModel(
         chatRepository.getUnreadCounts(userPrefs.userId),
         _searchQuery,
         userAndTransportFlow,
-        dialogsFlow
-    ) { contacts, unreadMap, query, userAndTransport, dialogs ->
+        _showAddContactDialog
+    ) { contacts, unreadMap, query, userAndTransport, showAddDialog ->
         val userName = userAndTransport.first
         val transport = userAndTransport.second
         val mode = userAndTransport.third
@@ -89,8 +78,7 @@ class HomeViewModel(
             activeTransport = transport,
             connectionMode = mode,
             isScanningLan = true,
-            showEditProfileDialog = dialogs.first,
-            showAddContactDialog = dialogs.second
+            showAddContactDialog = showAddDialog
         )
     }.stateIn(
         scope = viewModelScope,
@@ -116,7 +104,6 @@ class HomeViewModel(
             ConnectionMode.WIFI -> {
                 val transport = appContainer.connectivityMonitor.activeTransport.value
                 val hasNet = transport == ActiveTransportMode.WIFI ||
-                    transport == ActiveTransportMode.WIFI_DIRECT ||
                     appContainer.connectivityMonitor.hasInternet()
                 if (hasNet) {
                     "Switched to Wi-Fi Mode"
@@ -137,19 +124,6 @@ class HomeViewModel(
 
     fun onSearchQueryChanged(query: String) {
         _searchQuery.value = query
-    }
-
-    fun openEditProfileDialog() {
-        _showEditProfileDialog.value = true
-    }
-
-    fun closeEditProfileDialog() {
-        _showEditProfileDialog.value = false
-    }
-
-    fun saveProfileName(newName: String) {
-        appContainer.updateMyProfileName(newName)
-        _showEditProfileDialog.value = false
     }
 
     fun openAddContactDialog() {

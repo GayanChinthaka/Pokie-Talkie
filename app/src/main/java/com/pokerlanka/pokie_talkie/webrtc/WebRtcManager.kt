@@ -3,6 +3,7 @@ package com.pokerlanka.pokie_talkie.webrtc
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.pokerlanka.pokie_talkie.BuildConfig
 import com.pokerlanka.pokie_talkie.data.model.CallType
 import com.pokerlanka.pokie_talkie.data.model.IceCandidateModel
 import kotlinx.coroutines.CoroutineScope
@@ -43,7 +44,7 @@ class WebRtcManager(
 ) {
     private val tag = "WebRtcManager"
 
-    val eglBase: EglBase = EglBase.create()
+    val eglBase: EglBase by lazy { EglBase.create() }
     private var peerConnectionFactory: PeerConnectionFactory? = null
     private var peerConnection: PeerConnection? = null
 
@@ -97,20 +98,18 @@ class WebRtcManager(
     var pendingRemoteOfferSdp: String? = null
     private val pendingIceCandidates = mutableListOf<IceCandidateModel>()
 
-    init {
-        initPeerConnectionFactory()
-    }
-
-    private fun initPeerConnectionFactory() {
+    @Synchronized
+    private fun ensurePeerConnectionFactory(): PeerConnectionFactory? {
+        peerConnectionFactory?.let { return it }
         val options = PeerConnectionFactory.InitializationOptions.builder(context)
-            .setEnableInternalTracer(true)
+            .setEnableInternalTracer(BuildConfig.DEBUG)
             .createInitializationOptions()
         PeerConnectionFactory.initialize(options)
 
         val encoderFactory = DefaultVideoEncoderFactory(eglBase.eglBaseContext, true, true)
         val decoderFactory = DefaultVideoDecoderFactory(eglBase.eglBaseContext)
 
-        peerConnectionFactory = PeerConnectionFactory.builder()
+        return PeerConnectionFactory.builder()
             .setVideoEncoderFactory(encoderFactory)
             .setVideoDecoderFactory(decoderFactory)
             .setOptions(PeerConnectionFactory.Options().apply {
@@ -118,11 +117,12 @@ class WebRtcManager(
                 networkIgnoreMask = 0
             })
             .createPeerConnectionFactory()
+            .also { peerConnectionFactory = it }
     }
 
     @Synchronized
     fun startLocalMedia(callType: CallType) {
-        val factory = peerConnectionFactory ?: return
+        val factory = ensurePeerConnectionFactory() ?: return
 
         if (localAudioTrack != null && (callType == CallType.VOICE || localVideoTrack != null)) {
             Log.d(tag, "Local media is already running for $callType")
@@ -183,7 +183,7 @@ class WebRtcManager(
             Log.d(tag, "PeerConnection already exists, skipping recreate")
             return
         }
-        val factory = peerConnectionFactory ?: return
+        val factory = ensurePeerConnectionFactory() ?: return
 
         // Configure ICE Servers with Google STUN + LAN direct
         val iceServers = listOf(
@@ -479,7 +479,7 @@ class WebRtcManager(
         onSystemStopped: () -> Unit
     ): Boolean {
         if (_isScreenSharing.value) return true
-        val factory = peerConnectionFactory ?: return false
+        val factory = ensurePeerConnectionFactory() ?: return false
 
         return try {
             wasCameraEnabledBeforeScreenShare = _isVideoEnabled.value
@@ -616,7 +616,7 @@ class WebRtcManager(
     @Synchronized
     fun upgradeToVideo() {
         Log.i(tag, "Upgrading active call to VIDEO")
-        val factory = peerConnectionFactory ?: return
+        val factory = ensurePeerConnectionFactory() ?: return
 
         // 1. Start local camera capturer and video track if not already running
         if (localVideoTrack == null) {

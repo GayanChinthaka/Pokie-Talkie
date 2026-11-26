@@ -22,12 +22,19 @@ class PokieApp : Application() {
 
             override fun onActivityStarted(activity: Activity) {
                 startedActivities++
+                val becameForeground = !isAppInForeground && startedActivities > 0
                 isAppInForeground = startedActivities > 0
+                if (becameForeground && ::appContainer.isInitialized) {
+                    appContainer.onAppForegroundChanged(true)
+                }
             }
 
             override fun onActivityStopped(activity: Activity) {
                 startedActivities--
                 isAppInForeground = startedActivities > 0
+                if (!isAppInForeground && ::appContainer.isInitialized) {
+                    appContainer.onAppForegroundChanged(false)
+                }
             }
 
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}

@@ -47,13 +47,21 @@ class LanDiscoveryManager(
     private val userIdToServiceName = ConcurrentHashMap<String, String>()
     private val resolveChannel = Channel<NsdServiceInfo>(Channel.UNLIMITED)
     private var resolveWorkerJob: Job? = null
+    private var multicastTimeoutJob: Job? = null
     private var unregisterDeferred: CompletableDeferred<Unit>? = null
+    @Volatile
+    private var isAppInForeground: Boolean = true
 
     private var registrationAttempts = 0
     private var discoveryAttempts = 0
 
     private val _discoveredPeers = MutableStateFlow<Map<String, Contact>>(emptyMap())
     val discoveredPeers: StateFlow<Map<String, Contact>> = _discoveredPeers.asStateFlow()
+
+    companion object {
+        // Release MulticastLock after active discovery burst so Wi-Fi chipset can enter DTIM sleep
+        private const val MULTICAST_BURST_MS = 25_000L
+    }
 
     fun initialize(userId: String, userName: String, port: Int, fcmToken: String = "") {
         this.myUserId = userId
@@ -75,9 +83,34 @@ class LanDiscoveryManager(
 
     fun startDiscoveryAndRegistration() {
         startResolveWorker()
-        acquireMulticastLock()
         registerService()
+        if (isAppInForeground) {
+            acquireMulticastLockBurst()
+            startDiscovery()
+        }
+    }
+
+    fun onAppForegrounded() {
+        isAppInForeground = true
+        startResolveWorker()
+        registerService()
+        acquireMulticastLockBurst()
         startDiscovery()
+    }
+
+    fun onAppBackgrounded() {
+        isAppInForeground = false
+        // Pause active mDNS scanning & release MulticastLock to let Wi-Fi enter low-power sleep;
+        // LanSocketServer + registered NSD service remain available for incoming peers.
+        stopDiscovery()
+        releaseMulticastLock()
+    }
+
+    fun clearDiscoveryCache() {
+        knownServices.clear()
+        serviceNameToUserId.clear()
+        userIdToServiceName.clear()
+        _discoveredPeers.value = emptyMap()
     }
 
     fun updateProfileName(newName: String) {
@@ -128,14 +161,26 @@ class LanDiscoveryManager(
         unregisterService()
         resolveWorkerJob?.cancel()
         resolveWorkerJob = null
+        multicastTimeoutJob?.cancel()
+        multicastTimeoutJob = null
         releaseMulticastLock()
+        clearDiscoveryCache()
+    }
+
+    private fun acquireMulticastLockBurst() {
+        acquireMulticastLock()
+        multicastTimeoutJob?.cancel()
+        multicastTimeoutJob = scope.launch(Dispatchers.Default) {
+            delay(MULTICAST_BURST_MS)
+            releaseMulticastLock()
+        }
     }
 
     private fun acquireMulticastLock() {
         try {
             if (multicastLock == null) {
                 multicastLock = wifiManager.createMulticastLock("pokie_multicast_lock").apply {
-                    setReferenceCounted(true)
+                    setReferenceCounted(false)
                 }
             }
             multicastLock?.let {
@@ -150,6 +195,8 @@ class LanDiscoveryManager(
     }
 
     private fun releaseMulticastLock() {
+        multicastTimeoutJob?.cancel()
+        multicastTimeoutJob = null
         try {
             multicastLock?.let {
                 if (it.isHeld) {
@@ -168,7 +215,6 @@ class LanDiscoveryManager(
         val btManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
         val btAdapter = btManager?.adapter
         val btName = try { btAdapter?.name ?: "" } catch (e: Exception) { "" }
-        val btAddress = try { btAdapter?.address ?: "" } catch (e: Exception) { "" }
 
         val serviceInfo = NsdServiceInfo().apply {
             serviceName = "Pokie_${myUserId}"
@@ -179,9 +225,6 @@ class LanDiscoveryManager(
             setAttribute("version", "1.0")
             if (btName.isNotBlank()) {
                 setAttribute("btName", btName)
-            }
-            if (btAddress.isNotBlank() && btAddress != "02:00:00:00:00:00") {
-                setAttribute("btAddress", btAddress)
             }
             if (myFcmToken.isNotBlank()) {
                 setAttribute("fcmToken", myFcmToken)

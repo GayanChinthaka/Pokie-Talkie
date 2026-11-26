@@ -40,6 +40,7 @@ class TelecomCallManager(
     private val tag = "TelecomCallManager"
     private val telecomManager = context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
     private val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    private var incomingCallWakeLock: android.os.PowerManager.WakeLock? = null
 
     companion object {
         const val PHONE_ACCOUNT_ID = "pokie_talkie_phone_account"
@@ -165,6 +166,7 @@ class TelecomCallManager(
 
     private fun wakeUpScreen() {
         try {
+            releaseIncomingWakeLock()
             val powerManager = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
             @Suppress("DEPRECATION")
             val wakeLock = powerManager?.newWakeLock(
@@ -173,9 +175,22 @@ class TelecomCallManager(
                 android.os.PowerManager.ON_AFTER_RELEASE,
                 "pokie_talkie:incoming_call_wake"
             )
-            wakeLock?.acquire(15000L) // 15 seconds
+            wakeLock?.setReferenceCounted(false)
+            wakeLock?.acquire(15000L) // Safety cap 15s; released earlier on answer/decline
+            incomingCallWakeLock = wakeLock
         } catch (e: Exception) {
             Log.w(tag, "Could not acquire WakeLock: ${e.message}")
+        }
+    }
+
+    private fun releaseIncomingWakeLock() {
+        try {
+            incomingCallWakeLock?.let {
+                if (it.isHeld) it.release()
+            }
+        } catch (ignored: Exception) {
+        } finally {
+            incomingCallWakeLock = null
         }
     }
 
@@ -347,6 +362,7 @@ class TelecomCallManager(
     fun dismissIncomingCallUi() {
         notificationManager.cancel(NOTIFICATION_CALL_ID)
         ringtoneVibrationManager.stopAll()
+        releaseIncomingWakeLock()
     }
 
     fun cleanupAfterCall(delayAudioResetMs: Long = 0L) {

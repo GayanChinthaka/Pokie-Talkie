@@ -1,7 +1,7 @@
 package com.pokerlanka.pokie_talkie.ui.components
 
 import android.graphics.BitmapFactory
-import androidx.compose.animation.AnimatedVisibility
+import android.util.LruCache
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -30,16 +30,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.CloudOff
-import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Videocam
-import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -47,7 +42,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -55,10 +50,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -67,24 +64,37 @@ import androidx.compose.ui.unit.sp
 import com.pokerlanka.pokie_talkie.data.model.Message
 import com.pokerlanka.pokie_talkie.data.model.MessageStatus
 import com.pokerlanka.pokie_talkie.data.model.MessageType
+import com.pokerlanka.pokie_talkie.ui.theme.LocalIsDarkTheme
 import com.pokerlanka.pokie_talkie.ui.theme.PokieCallGreen
 import com.pokerlanka.pokie_talkie.ui.theme.PokieCallRed
-import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkBg
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkBubbleMe
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkBubblePeer
-import com.pokerlanka.pokie_talkie.ui.theme.PokieLanActiveBadge
 import com.pokerlanka.pokie_talkie.ui.theme.PokieLightBubbleMe
 import com.pokerlanka.pokie_talkie.ui.theme.PokieLightBubblePeer
 import com.pokerlanka.pokie_talkie.ui.theme.PokieLightTextPrimary
 import com.pokerlanka.pokie_talkie.ui.theme.PokieLightTextSecondary
 import com.pokerlanka.pokie_talkie.ui.theme.PokieTextPrimary
 import com.pokerlanka.pokie_talkie.ui.theme.PokieTextSecondary
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
-import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
 import kotlin.math.roundToInt
+
+private object AvatarBitmapCache {
+    private const val MAX_CACHE_BYTES = 4 * 1024 * 1024 // 4 MB cap
+    private val cache = object : LruCache<String, ImageBitmap>(MAX_CACHE_BYTES) {
+        override fun sizeOf(key: String, value: ImageBitmap): Int {
+            return (value.width * value.height * 4).coerceAtLeast(1)
+        }
+    }
+
+    fun get(key: String): ImageBitmap? = cache.get(key)
+    fun put(key: String, bitmap: ImageBitmap) {
+        cache.put(key, bitmap)
+    }
+}
 
 @Composable
 fun AvatarView(
@@ -95,36 +105,45 @@ fun AvatarView(
     imagePath: String? = null,
     isOnlineLan: Boolean = false
 ) {
-    val initials = name.split(" ")
-        .mapNotNull { it.firstOrNull()?.toString() }
-        .take(2)
-        .joinToString("")
-        .uppercase()
+    val initials = remember(name) {
+        name.split(" ")
+            .mapNotNull { it.firstOrNull()?.toString() }
+            .take(2)
+            .joinToString("")
+            .uppercase()
+    }
 
-    val bitmap = remember(imagePath, size) {
-        if (!imagePath.isNullOrBlank()) {
-            val file = java.io.File(imagePath)
-            if (file.exists()) {
-                try {
-                    val boundsOptions = android.graphics.BitmapFactory.Options().apply {
-                        inJustDecodeBounds = true
-                    }
-                    android.graphics.BitmapFactory.decodeFile(file.absolutePath, boundsOptions)
-                    val targetPx = (size.value * 3).toInt().coerceAtLeast(1)
-                    var sampleSize = 1
-                    while (boundsOptions.outHeight / (sampleSize * 2) >= targetPx &&
-                           boundsOptions.outWidth / (sampleSize * 2) >= targetPx) {
-                        sampleSize *= 2
-                    }
-                    val decodeOptions = android.graphics.BitmapFactory.Options().apply {
-                        inSampleSize = sampleSize
-                    }
-                    android.graphics.BitmapFactory.decodeFile(file.absolutePath, decodeOptions)
-                } catch (e: Exception) {
-                    null
+    val targetPx = with(LocalDensity.current) { size.roundToPx().coerceAtLeast(1) }
+    val bitmap by produceState<ImageBitmap?>(initialValue = null, imagePath, targetPx) {
+        if (imagePath.isNullOrBlank()) {
+            value = null
+            return@produceState
+        }
+        val cacheKey = "$imagePath#$targetPx"
+        AvatarBitmapCache.get(cacheKey)?.let { cached ->
+            value = cached
+            return@produceState
+        }
+        value = withContext(Dispatchers.IO) {
+            val file = File(imagePath)
+            if (!file.exists()) return@withContext null
+            try {
+                val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(file.absolutePath, boundsOptions)
+                var sampleSize = 1
+                while (boundsOptions.outHeight / (sampleSize * 2) >= targetPx &&
+                    boundsOptions.outWidth / (sampleSize * 2) >= targetPx
+                ) {
+                    sampleSize *= 2
                 }
-            } else null
-        } else null
+                val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+                BitmapFactory.decodeFile(file.absolutePath, decodeOptions)?.asImageBitmap()?.also {
+                    AvatarBitmapCache.put(cacheKey, it)
+                }
+            } catch (_: Exception) {
+                null
+            }
+        }
     }
 
     Box(
@@ -138,9 +157,10 @@ fun AvatarView(
                 .background(backgroundColor),
             contentAlignment = Alignment.Center
         ) {
-            if (bitmap != null) {
+            val loadedBitmap = bitmap
+            if (loadedBitmap != null) {
                 Image(
-                    bitmap = bitmap.asImageBitmap(),
+                    bitmap = loadedBitmap,
                     contentDescription = name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
@@ -165,71 +185,6 @@ fun AvatarView(
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.primary)
                     .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
-            )
-        }
-    }
-}
-
-@Composable
-fun LanStatusBadge(
-    isOnlineLan: Boolean,
-    fcmToken: String = "",
-    bluetoothAddress: String? = null,
-    modifier: Modifier = Modifier
-) {
-    val isCloudReady = !isOnlineLan && fcmToken.isNotBlank()
-    val isBtReady = !bluetoothAddress.isNullOrBlank()
-    val lanColor = MaterialTheme.colorScheme.primary
-    val cloudColor = MaterialTheme.colorScheme.tertiary
-    val btColor = androidx.compose.ui.graphics.Color(0xFF2979FF)
-    val offlineColor = MaterialTheme.colorScheme.onSurfaceVariant
-
-    val badgeBg = when {
-        isOnlineLan -> lanColor.copy(alpha = 0.15f)
-        isCloudReady -> cloudColor.copy(alpha = 0.15f)
-        isBtReady -> btColor.copy(alpha = 0.15f)
-        else -> offlineColor.copy(alpha = 0.12f)
-    }
-    val badgeContentColor = when {
-        isOnlineLan -> lanColor
-        isCloudReady -> cloudColor
-        isBtReady -> btColor
-        else -> offlineColor
-    }
-    val badgeIcon = when {
-        isOnlineLan -> Icons.Default.Wifi
-        isCloudReady -> Icons.Default.Cloud
-        isBtReady -> Icons.Default.Bluetooth
-        else -> Icons.Default.CloudOff
-    }
-    val badgeText = when {
-        isOnlineLan -> "LAN Active"
-        isCloudReady -> "Cloud Ready"
-        isBtReady -> "Bluetooth Ready"
-        else -> "Offline"
-    }
-
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(12.dp),
-        color = badgeBg
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = badgeIcon,
-                contentDescription = null,
-                tint = badgeContentColor,
-                modifier = Modifier.size(13.dp)
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-                text = badgeText,
-                color = badgeContentColor,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.SemiBold
             )
         }
     }
@@ -510,7 +465,7 @@ fun ChatBubble(
     modifier: Modifier = Modifier
 ) {
     val isMe = message.isFromMe
-    val isDark = MaterialTheme.colorScheme.background == PokieDarkBg
+    val isDark = LocalIsDarkTheme.current
     val bubbleColor = if (isMe) {
         if (isDark) PokieDarkBubbleMe else PokieLightBubbleMe
     } else {

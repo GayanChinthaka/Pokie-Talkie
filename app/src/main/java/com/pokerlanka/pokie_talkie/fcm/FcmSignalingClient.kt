@@ -30,11 +30,11 @@ class FcmSignalingClient(
     private val scope: CoroutineScope,
     private val myUserId: String,
     private val userNameProvider: () -> String = { userPreferencesManager.getUserName() },
-    var fcmV1Client: FcmV1Client? = null
+    var fcmV1Client: FcmV1Client? = null,
+    private val gson: Gson = Gson()
 ) {
     private val myUserName: String get() = userNameProvider()
     private val tag = "FcmSignalingClient"
-    private val gson = Gson()
     var onCallFallbackToBluetooth: ((callId: String) -> Unit)? = null
     var lanDiscoveryManager: LanDiscoveryManager? = null
 

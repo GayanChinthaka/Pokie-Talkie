@@ -47,10 +47,9 @@ class CallController(
     private var ringTimeoutJob: Job? = null
     private val isStarted = AtomicBoolean(false)
 
-    /** Starts call lifecycle watchers (ring timeout, proximity lock, SoundPool connect cue). */
+    /** Starts call lifecycle watchers (ring timeout, proximity lock). */
     fun start() {
         if (!isStarted.compareAndSet(false, true)) return
-        ringtoneVibrationManager.preloadCallTones()
 
         scope.launch {
             callRepository.currentCall.collect { session ->
@@ -61,9 +60,11 @@ class CallController(
                 }
                 when (session.state) {
                     CallState.RINGING_INCOMING -> {
+                        ringtoneVibrationManager.preloadCallTones()
                         startRingTimeout(session.callId, isIncoming = true)
                     }
                     CallState.RINGING_OUTGOING -> {
+                        ringtoneVibrationManager.preloadCallTones()
                         startRingTimeout(session.callId, isIncoming = false)
                     }
                     CallState.CONNECTED -> {
@@ -214,14 +215,27 @@ class CallController(
             telecomCallManager.dismissIncomingCallUi()
             telecomCallManager.cleanupAfterCall(delayAudioResetMs = audioResetDelayMs)
 
-            // 6. End call in repository and log
+            // 6. End call in repository
             val finalCallState = when (reason) {
                 EndReason.REJECTED -> CallState.REJECTED
                 EndReason.MISSED -> CallState.MISSED
                 else -> CallState.DISCONNECTED
             }
-            scope.launch(Dispatchers.IO) {
-                callRepository.endCallAndLog(finalCallState)
+            callRepository.endCall(finalCallState)
+
+            // 7. Release SoundPool buffers after disconnect tone finishes
+            scope.launch(Dispatchers.Default) {
+                delay(1_200L)
+                val latest = callRepository.currentCall.value
+                if (latest == null || latest.state !in listOf(
+                        CallState.RINGING_INCOMING,
+                        CallState.RINGING_OUTGOING,
+                        CallState.CONNECTING,
+                        CallState.CONNECTED
+                    )
+                ) {
+                    ringtoneVibrationManager.releaseCallTones()
+                }
             }
         } finally {
             isEndingCall.set(false)

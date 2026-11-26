@@ -379,7 +379,7 @@ class BluetoothTransportManager(
                                     Log.i(tag, "Bluetooth payload [${payload.type}] acknowledged by $address (ACK: $ack)")
                                     break
                                 }
-                                kotlinx.coroutines.delay(40)
+                                kotlinx.coroutines.delay(80)
                             }
                         } catch (e: Exception) {
                             Log.w(tag, "Exception waiting for Bluetooth ACK from $address: ${e.message}")

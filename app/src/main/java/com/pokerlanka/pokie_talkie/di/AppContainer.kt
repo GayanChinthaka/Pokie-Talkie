@@ -42,7 +42,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import com.pokerlanka.pokie_talkie.bluetooth.BluetoothTransportManager
 import com.pokerlanka.pokie_talkie.bluetooth.BluetoothVoiceManager
-import com.pokerlanka.pokie_talkie.wifip2p.WifiDirectManager
 import com.pokerlanka.pokie_talkie.telecom.RingtoneVibrationManager
 import com.pokerlanka.pokie_talkie.telecom.CallController
 import com.pokerlanka.pokie_talkie.telecom.EndReason
@@ -75,11 +74,14 @@ class AppContainer(val context: Context) {
     val currentUserId: String get() = userPreferencesManager.userId
     val currentUserName: String get() = userPreferencesManager.getUserName()
 
+    // Shared JSON serializer to avoid repeated Gson allocation & reflection cache duplication
+    val gson by lazy { com.google.gson.Gson() }
+
     // Database & Repositories
     val database by lazy { PokieDatabase.getInstance(context) }
     val chatRepository by lazy { ChatRepository(database.messageDao(), database.contactDao(), database) }
     val contactRepository by lazy { ContactRepository(database.contactDao(), database) }
-    val callRepository by lazy { CallRepository(database.callLogDao(), applicationScope) }
+    val callRepository by lazy { CallRepository(applicationScope) }
     val callController by lazy {
         CallController(
             callRepository = callRepository,
@@ -93,10 +95,10 @@ class AppContainer(val context: Context) {
         )
     }
 
-    // Networking, Bluetooth & Proximity Transport
-    val lanSocketServer by lazy { LanSocketServer(applicationScope) }
+    // Networking & Bluetooth Transport
+    val lanSocketServer by lazy { LanSocketServer(applicationScope, gson) }
     val lanDiscoveryManager by lazy { LanDiscoveryManager(context, contactRepository, applicationScope) }
-    val bluetoothTransportManager by lazy { BluetoothTransportManager(context, applicationScope, contactRepository) }
+    val bluetoothTransportManager by lazy { BluetoothTransportManager(context, applicationScope, contactRepository, gson) }
     val bluetoothVoiceManager by lazy {
         BluetoothVoiceManager(
             context = context,
@@ -105,26 +107,12 @@ class AppContainer(val context: Context) {
             audioDeviceManager = webRtcManager.audioDeviceManager
         )
     }
-    val wifiDirectManager by lazy {
-        WifiDirectManager(context) { peerIp, isGroupOwner ->
-            if (!isGroupOwner) {
-                Log.i(tag, "Wi-Fi Direct peer connected with IP: $peerIp")
-                applicationScope.launch {
-                    addManualContact(
-                        name = "Nearby Peer ($peerIp)",
-                        ipAddress = peerIp,
-                        port = 52220
-                    )
-                }
-            }
-        }
-    }
 
     val connectivityMonitor by lazy {
-        ConnectivityMonitor(context, applicationScope, wifiDirectManager, bluetoothTransportManager)
+        ConnectivityMonitor(context, bluetoothTransportManager)
     }
 
-    val fcmV1Client by lazy { com.pokerlanka.pokie_talkie.fcm.FcmV1Client(context) }
+    val fcmV1Client by lazy { com.pokerlanka.pokie_talkie.fcm.FcmV1Client(context, gson) }
 
     val fcmSignalingClient by lazy {
         FcmSignalingClient(
@@ -135,7 +123,8 @@ class AppContainer(val context: Context) {
             scope = applicationScope,
             myUserId = currentUserId,
             userNameProvider = { currentUserName },
-            fcmV1Client = fcmV1Client
+            fcmV1Client = fcmV1Client,
+            gson = gson
         )
     }
 
@@ -268,18 +257,13 @@ class AppContainer(val context: Context) {
         // Start mode-appropriate listeners (Wi-Fi vs Bluetooth)
         ensureListenersActive()
 
-        // Initialize Wi-Fi Direct
-        try {
-            wifiDirectManager.initialize()
-        } catch (e: Exception) {
-            Log.w(tag, "Wi-Fi Direct init deferred: ${e.message}")
-        }
-
         // Start Connectivity Monitor with callbacks for BT restore and Wi-Fi loss
         connectivityMonitor.onBluetoothStateOn = {
             ensureListenersActive()
         }
         connectivityMonitor.onWifiLost = {
+            lanSocketServer.invalidateCachedIp()
+            lanDiscoveryManager.clearDiscoveryCache()
             applicationScope.launch(Dispatchers.IO) {
                 contactRepository.resetAllLanStatus()
             }
@@ -806,6 +790,17 @@ class AppContainer(val context: Context) {
             }
         } catch (e: Throwable) {
             Log.e(tag, "Error handling incoming $source payload: ${e.message}", e)
+        }
+    }
+
+    fun onAppForegroundChanged(inForeground: Boolean) {
+        if (userPreferencesManager.getConnectionMode() == ConnectionMode.WIFI) {
+            if (inForeground) {
+                lanSocketServer.invalidateCachedIp()
+                lanDiscoveryManager.onAppForegrounded()
+            } else {
+                lanDiscoveryManager.onAppBackgrounded()
+            }
         }
     }
 

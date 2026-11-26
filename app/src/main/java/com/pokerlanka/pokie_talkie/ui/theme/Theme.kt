@@ -6,8 +6,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
@@ -48,6 +51,8 @@ private val PokieLightColorScheme = lightColorScheme(
 
 
 
+val LocalIsDarkTheme = compositionLocalOf { true }
+
 @Composable
 fun PokieTalkieTheme(
     themeMode: AppThemeMode = AppThemeMode.SYSTEM,
@@ -62,12 +67,15 @@ fun PokieTalkieTheme(
     }
 
     val primaryColor = Color(accentColor)
-    val primaryContainerColor = primaryColor.copy(alpha = 0.3f)
+    val onPrimaryColor = if (primaryColor.luminance() > 0.45f) Color(0xFF111B21) else Color.White
+    val primaryContainerColor = primaryColor.copy(alpha = 0.25f)
 
     val baseScheme = if (isDark) PokieDarkColorScheme else PokieLightColorScheme
     val colorScheme = baseScheme.copy(
         primary = primaryColor,
-        primaryContainer = primaryContainerColor
+        onPrimary = onPrimaryColor,
+        primaryContainer = primaryContainerColor,
+        secondary = primaryColor
     )
     val view = LocalView.current
 
@@ -84,10 +92,12 @@ fun PokieTalkieTheme(
         }
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        content = content
-    )
+    CompositionLocalProvider(LocalIsDarkTheme provides isDark) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = Typography,
+            content = content
+        )
+    }
 }
 

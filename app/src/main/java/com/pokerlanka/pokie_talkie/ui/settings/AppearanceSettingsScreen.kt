@@ -1,9 +1,5 @@
 package com.pokerlanka.pokie_talkie.ui.settings
 
-import android.net.Uri
-import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -11,14 +7,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -29,10 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -52,7 +43,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -87,20 +77,9 @@ fun AppearanceSettingsScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
     val themeMode by viewModel.themeMode.collectAsState()
     val avatarColor by viewModel.avatarColor.collectAsState()
-    val profileImagePath by viewModel.profileImagePath.collectAsState()
     val accentColor by viewModel.themeAccentColor.collectAsState()
-
-    val photoPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            viewModel.saveProfileImageFromUri(context, uri)
-            Toast.makeText(context, "Profile photo updated!", Toast.LENGTH_SHORT).show()
-        }
-    }
 
     Scaffold(
         topBar = {
@@ -315,38 +294,6 @@ fun AppearanceSettingsScreen(
                         }
                     }
                 }
-            }
-
-            // Photo Management
-            item {
-                val photoItems = buildList {
-                    add(
-                        Material3SettingsItem(
-                            icon = Icons.Default.PhotoLibrary,
-                            title = { Text(if (profileImagePath != null) "Change Profile Photo" else "Set Profile Photo") },
-                            description = { Text("Choose a custom picture from your device gallery") },
-                            onClick = { photoPickerLauncher.launch("image/*") }
-                        )
-                    )
-                    if (profileImagePath != null) {
-                        add(
-                            Material3SettingsItem(
-                                icon = Icons.Default.Delete,
-                                title = { Text("Remove Photo", color = MaterialTheme.colorScheme.error) },
-                                description = { Text("Revert to colored letter avatar") },
-                                onClick = {
-                                    viewModel.removeProfileImage(context)
-                                    Toast.makeText(context, "Profile photo removed", Toast.LENGTH_SHORT).show()
-                                }
-                            )
-                        )
-                    }
-                }
-
-                Material3SettingsGroup(
-                    title = "Profile Photo",
-                    items = photoItems
-                )
             }
         }
     }

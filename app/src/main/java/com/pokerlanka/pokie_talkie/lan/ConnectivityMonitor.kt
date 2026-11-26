@@ -10,26 +10,20 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import com.pokerlanka.pokie_talkie.bluetooth.BluetoothTransportManager
-import com.pokerlanka.pokie_talkie.wifip2p.WifiDirectManager
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 
 import android.net.wifi.WifiManager
 
 enum class ActiveTransportMode {
     WIFI,
-    WIFI_DIRECT,
     BLUETOOTH,
     OFFLINE
 }
 
 class ConnectivityMonitor(
     private val context: Context,
-    private val scope: CoroutineScope,
-    private val wifiDirectManager: WifiDirectManager,
     private val bluetoothTransportManager: BluetoothTransportManager
 ) {
     private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
@@ -103,12 +97,6 @@ class ConnectivityMonitor(
             context.registerReceiver(broadcastReceiver, filter)
         } catch (ignored: Exception) {}
 
-        scope.launch {
-            wifiDirectManager.isConnected.collect {
-                updateTransport()
-            }
-        }
-
         updateTransport()
     }
 
@@ -136,10 +124,6 @@ class ConnectivityMonitor(
     }
 
     private fun determineTransport(): ActiveTransportMode {
-        if (wifiDirectManager.isConnected.value) {
-            return ActiveTransportMode.WIFI_DIRECT
-        }
-
         val hasWifiNetwork = synchronized(availableWifiNetworks) {
             availableWifiNetworks.isNotEmpty()
         }

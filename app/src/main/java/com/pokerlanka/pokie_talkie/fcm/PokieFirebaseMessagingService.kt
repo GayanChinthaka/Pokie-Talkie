@@ -17,7 +17,6 @@ import kotlinx.coroutines.launch
 class PokieFirebaseMessagingService : FirebaseMessagingService() {
 
     private val tag = "PokieFcmService"
-    private val gson = Gson()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onNewToken(token: String) {
@@ -44,7 +43,7 @@ class PokieFirebaseMessagingService : FirebaseMessagingService() {
             val jsonPayload = data["payload"]
             val payload = if (!jsonPayload.isNullOrBlank()) {
                 try {
-                    gson.fromJson(jsonPayload, SignalingPayload::class.java)
+                    container.gson.fromJson(jsonPayload, SignalingPayload::class.java)
                 } catch (e: Exception) {
                     Log.e(tag, "Error parsing jsonPayload from FCM: ${e.message}")
                     null

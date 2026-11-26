@@ -179,9 +179,8 @@ class PokieLocalService : Service() {
                 _isMediaProjectionForegroundActive.value = false
                 releaseCallWakeLock()
                 releaseLocks()
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
-                return START_NOT_STICKY
+                // Downgrade back to idle proximity notification instead of killing the service
+                updateForegroundNotification(inCall = false, isVideo = false, isScreenSharing = false)
             }
             ACTION_START -> {
                 if (isCallActive) {

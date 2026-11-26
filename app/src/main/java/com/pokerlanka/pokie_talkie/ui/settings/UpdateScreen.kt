@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Info
@@ -44,10 +45,8 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -77,11 +76,12 @@ fun UpdateScreen(
 
     val autoCheckUpdates by viewModel.autoCheckUpdates.collectAsState()
     val lastUpdateCheckTime by viewModel.lastUpdateCheckTime.collectAsState()
+    val updateState by Updater.state.collectAsState()
 
-    var isChecking by remember { mutableStateOf(false) }
-    var latestRelease by remember { mutableStateOf<ReleaseInfo?>(null) }
-    var checkError by remember { mutableStateOf<String?>(null) }
-    var hasCheckedOnce by remember { mutableStateOf(false) }
+    val isChecking = updateState.isChecking
+    val latestRelease = updateState.latestRelease
+    val checkError = updateState.checkError
+    val hasCheckedOnce = updateState.hasCheckedOnce
 
     val currentVersion = BuildConfig.VERSION_NAME
 
@@ -92,22 +92,15 @@ fun UpdateScreen(
 
     fun runUpdateCheck() {
         if (isChecking) return
-        isChecking = true
-        checkError = null
 
         coroutineScope.launch {
-            val result = Updater.getLatestRelease()
-            isChecking = false
-            hasCheckedOnce = true
-
+            val result = Updater.checkForUpdates()
             result.onSuccess { release ->
-                latestRelease = release
                 viewModel.setLastUpdateCheckTime(System.currentTimeMillis())
                 if (!Updater.isUpdateAvailable(release.tagName, currentVersion)) {
                     Toast.makeText(context, "Pokie-Talkie is up to date!", Toast.LENGTH_SHORT).show()
                 }
             }.onFailure { error ->
-                checkError = error.message ?: "Could not check for updates"
                 Toast.makeText(context, "Update check failed: ${error.message}", Toast.LENGTH_SHORT).show()
             }
         }
@@ -294,7 +287,7 @@ fun UpdateScreen(
                                 ) {
                                     Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Download & Install Update", fontWeight = FontWeight.Bold)
+                                    Text("Download APK from Release", fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -423,22 +416,38 @@ fun UpdateScreen(
                 )
             }
 
-            // Action Button: Check Now
+            // Action Buttons: Check Now & Direct Releases Page
             item {
-                Button(
-                    onClick = { runUpdateCheck() },
-                    enabled = !isChecking,
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(if (isChecking) "Checking..." else "Check for Updates")
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(
+                        onClick = { runUpdateCheck() },
+                        enabled = !isChecking,
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(if (isChecking) "Checking..." else "Check for Updates")
+                    }
+
+                    OutlinedButton(
+                        onClick = { Updater.openReleasesPage(context) },
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Open GitHub Releases Page")
+                    }
                 }
             }
         }

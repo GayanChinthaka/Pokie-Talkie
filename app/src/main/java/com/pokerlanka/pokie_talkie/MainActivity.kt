@@ -46,12 +46,6 @@ class MainActivity : ComponentActivity() {
             add(Manifest.permission.BLUETOOTH_SCAN)
             add(Manifest.permission.BLUETOOTH_ADVERTISE)
         }
-        // Nearby Wi-Fi Devices (Android 13+)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            add(Manifest.permission.NEARBY_WIFI_DEVICES)
-        } else {
-            add(Manifest.permission.ACCESS_FINE_LOCATION)
-        }
     }
 
     private val permissionLauncher = registerForActivityResult(
@@ -110,7 +104,12 @@ class MainActivity : ComponentActivity() {
                 ) {
                     val navController = rememberNavController()
                     val currentCall by container.callRepository.currentCall.collectAsState()
-                    val isScreenSharing by container.webRtcManager.isScreenSharing.collectAsState()
+                    // Avoid initializing WebRtcManager (EglBase + PeerConnectionFactory) when idle
+                    val isScreenSharing by if (currentCall?.state == CallState.CONNECTED) {
+                        container.webRtcManager.isScreenSharing.collectAsState()
+                    } else {
+                        androidx.compose.runtime.remember { mutableStateOf(false) }
+                    }
                     val chatPeerId = pendingChatPeerId.value
 
                     DisposableEffect(currentCall?.state, currentCall?.callType, isScreenSharing) {

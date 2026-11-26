@@ -29,7 +29,6 @@ class UserPreferencesManager(context: Context) {
         private const val KEY_THEME_MODE = "key_theme_mode"
         private const val KEY_AVATAR_COLOR = "key_avatar_color"
         private const val KEY_PROFILE_IMAGE_PATH = "key_profile_image_path"
-        private const val KEY_FCM_SERVER_KEY = "key_fcm_server_key"
         private const val KEY_CALL_RINGTONE_ENABLED = "key_call_ringtone_enabled"
         private const val KEY_CALL_VIBRATION_ENABLED = "key_call_vibration_enabled"
         private const val KEY_RINGBACK_TONE_ENABLED = "key_ringback_tone_enabled"
@@ -59,9 +58,6 @@ class UserPreferencesManager(context: Context) {
 
     private val _fcmTokenFlow = MutableStateFlow(prefs.getString(KEY_FCM_TOKEN, "") ?: "")
     val fcmTokenFlow: StateFlow<String> = _fcmTokenFlow.asStateFlow()
-
-    private val _fcmServerKeyFlow = MutableStateFlow(prefs.getString(KEY_FCM_SERVER_KEY, null))
-    val fcmServerKeyFlow: StateFlow<String?> = _fcmServerKeyFlow.asStateFlow()
 
     private val _themeModeFlow = MutableStateFlow(getThemeModeInternal())
     val themeModeFlow: StateFlow<AppThemeMode> = _themeModeFlow.asStateFlow()
@@ -165,17 +161,6 @@ class UserPreferencesManager(context: Context) {
         _profileImagePathFlow.value = path
     }
 
-    fun setFcmServerKey(key: String?) {
-        val trimmed = key?.trim()
-        if (!trimmed.isNullOrBlank()) {
-            prefs.edit().putString(KEY_FCM_SERVER_KEY, trimmed).apply()
-            _fcmServerKeyFlow.value = trimmed
-        } else {
-            prefs.edit().remove(KEY_FCM_SERVER_KEY).apply()
-            _fcmServerKeyFlow.value = null
-        }
-    }
-
     fun setThemeAccentColor(colorHex: Long) {
         prefs.edit().putLong(KEY_THEME_ACCENT_COLOR, colorHex).apply()
         _themeAccentColorFlow.value = colorHex
@@ -228,7 +213,6 @@ class UserPreferencesManager(context: Context) {
 
     fun getUserName(): String = _userNameFlow.value
     fun getFcmToken(): String = _fcmTokenFlow.value
-    fun getFcmServerKey(): String? = _fcmServerKeyFlow.value
     fun getThemeMode(): AppThemeMode = _themeModeFlow.value
     fun getAvatarColor(): Long = _avatarColorFlow.value
     fun getThemeAccentColor(): Long = _themeAccentColorFlow.value

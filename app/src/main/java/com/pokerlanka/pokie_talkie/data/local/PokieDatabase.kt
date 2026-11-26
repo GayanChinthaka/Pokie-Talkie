@@ -6,10 +6,8 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverter
 import androidx.room.TypeConverters
-import com.pokerlanka.pokie_talkie.data.local.dao.CallLogDao
 import com.pokerlanka.pokie_talkie.data.local.dao.ContactDao
 import com.pokerlanka.pokie_talkie.data.local.dao.MessageDao
-import com.pokerlanka.pokie_talkie.data.local.entity.CallLogEntity
 import com.pokerlanka.pokie_talkie.data.local.entity.ContactEntity
 import com.pokerlanka.pokie_talkie.data.local.entity.MessageEntity
 import com.pokerlanka.pokie_talkie.data.model.CallType
@@ -54,17 +52,15 @@ class PokieTypeConverters {
 @Database(
     entities = [
         MessageEntity::class,
-        ContactEntity::class,
-        CallLogEntity::class
+        ContactEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(PokieTypeConverters::class)
 abstract class PokieDatabase : RoomDatabase() {
     abstract fun messageDao(): MessageDao
     abstract fun contactDao(): ContactDao
-    abstract fun callLogDao(): CallLogDao
 
     companion object {
         @Volatile
@@ -76,6 +72,12 @@ abstract class PokieDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS call_logs")
+            }
+        }
+
         fun getInstance(context: Context): PokieDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -83,7 +85,7 @@ abstract class PokieDatabase : RoomDatabase() {
                     PokieDatabase::class.java,
                     "pokie_talkie.db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

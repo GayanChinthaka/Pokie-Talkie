@@ -133,6 +133,18 @@ class RingtoneVibrationManager(
         }
     }
 
+    fun releaseCallTones() {
+        try {
+            soundPool?.release()
+        } catch (ignored: Exception) {}
+        soundPool = null
+        connectedSoundId = 0
+        disconnectedSoundId = 0
+        loadedSounds.clear()
+        pendingConnectPlay = false
+        pendingDisconnectPlay = false
+    }
+
     // ===========================================
     //  INCOMING CALL — Ringtone + Vibration
     // ===========================================

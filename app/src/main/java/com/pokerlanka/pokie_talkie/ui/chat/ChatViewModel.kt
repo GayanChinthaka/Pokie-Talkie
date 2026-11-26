@@ -18,8 +18,6 @@ import com.pokerlanka.pokie_talkie.data.model.Sticker
 import com.pokerlanka.pokie_talkie.data.repository.ChatRepository
 import com.pokerlanka.pokie_talkie.data.repository.ContactRepository
 import com.pokerlanka.pokie_talkie.fcm.FcmSignalingClient
-import com.pokerlanka.pokie_talkie.lan.ConnectivityMonitor
-import com.pokerlanka.pokie_talkie.lan.ActiveTransportMode
 import com.pokerlanka.pokie_talkie.telecom.TelecomCallManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,13 +28,6 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
 
-data class ChatUiState(
-    val contact: Contact? = null,
-    val messages: List<Message> = emptyList(),
-    val inputText: String = "",
-    val isStickerPickerOpen: Boolean = false
-)
-
 class ChatViewModel(
     private val peerId: String,
     private val myUserId: String,
@@ -44,7 +35,6 @@ class ChatViewModel(
     private val contactRepository: ContactRepository,
     private val fcmSignalingClient: FcmSignalingClient,
     private val telecomCallManager: TelecomCallManager,
-    private val connectivityMonitor: ConnectivityMonitor,
     private val userPreferencesManager: UserPreferencesManager,
     // Sends must outlive the screen, or leaving the chat strands the message in SENDING
     private val appScope: CoroutineScope
@@ -186,7 +176,6 @@ class ChatViewModel(
             contactRepository: ContactRepository,
             fcmSignalingClient: FcmSignalingClient,
             telecomCallManager: TelecomCallManager,
-            connectivityMonitor: ConnectivityMonitor,
             userPreferencesManager: UserPreferencesManager,
             appScope: CoroutineScope
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
@@ -199,7 +188,6 @@ class ChatViewModel(
                     contactRepository,
                     fcmSignalingClient,
                     telecomCallManager,
-                    connectivityMonitor,
                     userPreferencesManager,
                     appScope
                 ) as T

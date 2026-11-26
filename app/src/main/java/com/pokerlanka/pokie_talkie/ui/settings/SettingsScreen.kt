@@ -160,7 +160,7 @@ fun SettingsScreen(
                                 backgroundColor = Color(avatarColor),
                                 imagePath = profileImagePath,
                                 size = 92.dp,
-                                isOnlineLan = true
+                                isOnlineLan = false
                             )
                             Surface(
                                 shape = CircleShape,
