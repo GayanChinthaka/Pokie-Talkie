@@ -25,6 +25,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ScreenShare
+import androidx.compose.material.icons.automirrored.filled.StopScreenShare
 import androidx.compose.material.icons.automirrored.filled.VolumeDown
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Bluetooth
@@ -36,8 +38,6 @@ import androidx.compose.material.icons.filled.Headset
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.PhoneInTalk
-import androidx.compose.material.icons.filled.ScreenShare
-import androidx.compose.material.icons.filled.StopScreenShare
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VideocamOff
 import androidx.compose.material.icons.filled.Wifi
@@ -106,7 +106,6 @@ fun CallScreen(
     val isRemoteVideoEnabled by viewModel.isRemoteVideoEnabled.collectAsState()
     val isScreenSharing by viewModel.isScreenSharing.collectAsState()
     val isRemoteScreenSharing by viewModel.isRemoteScreenSharing.collectAsState()
-    val isSpeakerOn by viewModel.isSpeakerOn.collectAsState()
     val activeAudioRoute by viewModel.activeAudioRoute.collectAsState()
     val availableAudioRoutes by viewModel.availableAudioRoutes.collectAsState()
     val videoUpgradeRequester by viewModel.videoUpgradeRequest.collectAsState()
@@ -201,8 +200,7 @@ fun CallScreen(
                 modifier = Modifier.padding(top = 32.dp)
             ) {
                 // Transport Badge
-                val isBtCall = callSession?.isBluetoothVoice == true
-                val badgeColor = if (isBtCall) androidx.compose.ui.graphics.Color(0xFF2979FF) else PokieLanActiveBadge
+                val badgeColor = if (isBtCall) Color(0xFF2979FF) else PokieLanActiveBadge
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = badgeColor.copy(alpha = 0.2f),
@@ -333,104 +331,123 @@ fun CallScreen(
                         onDecline = viewModel::hangupCall
                     )
                 } else {
-                    // Active / Outgoing Call In-Call Controls
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(32.dp))
-                            .background(Color.White.copy(alpha = 0.12f))
-                            .padding(vertical = 12.dp, horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically
+                    // Active / Outgoing Call In-Call Controls (Two clean rows so buttons never crowd)
+                    val isCameraVideoControls = callSession?.callType == CallType.VIDEO && !isScreenSharing
+                    val hasShareControl = !isBtCall && isConnected
+                    val topRowCount = 2 + (if (isCameraVideoControls) 2 else if (!isScreenSharing && !isBtCall) 1 else 0) + (if (hasShareControl) 1 else 0)
+                    val controlBtnSize = if (topRowCount >= 5) 48.dp else 54.dp
+
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        // Mic Mute
-                        CallControlButton(
-                            icon = if (isMuted) Icons.Default.MicOff else Icons.Default.Mic,
-                            label = if (isMuted) "Unmute" else "Mute",
-                            backgroundColor = if (isMuted) Color.White else Color.White.copy(alpha = 0.2f),
-                            iconTint = if (isMuted) Color.Black else Color.White,
-                            onClick = viewModel::toggleMute
-                        )
+                        // Row 1: Audio / Video / Screen Share toggles
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(28.dp))
+                                .background(Color.White.copy(alpha = 0.12f))
+                                .padding(vertical = 12.dp, horizontal = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Mic Mute
+                            CallControlButton(
+                                icon = if (isMuted) Icons.Default.MicOff else Icons.Default.Mic,
+                                label = if (isMuted) "Unmute" else "Mute",
+                                backgroundColor = if (isMuted) Color.White else Color.White.copy(alpha = 0.2f),
+                                iconTint = if (isMuted) Color.Black else Color.White,
+                                size = controlBtnSize,
+                                onClick = viewModel::toggleMute
+                            )
 
-                        // Audio Output Route (Bluetooth / Speaker / Earpiece / Headset)
-                        val audioRouteIcon = when (activeAudioRoute) {
-                            AudioRoute.BLUETOOTH -> Icons.Default.Bluetooth
-                            AudioRoute.WIRED_HEADSET -> Icons.Default.Headset
-                            AudioRoute.SPEAKER -> Icons.AutoMirrored.Filled.VolumeUp
-                            AudioRoute.EARPIECE -> Icons.AutoMirrored.Filled.VolumeDown
-                        }
-                        val audioRouteLabel = when (activeAudioRoute) {
-                            AudioRoute.BLUETOOTH -> "Bluetooth"
-                            AudioRoute.WIRED_HEADSET -> "Headset"
-                            AudioRoute.SPEAKER -> "Speaker"
-                            AudioRoute.EARPIECE -> "Earpiece"
-                        }
-                        val isAudioRouteHighlighted = activeAudioRoute != AudioRoute.EARPIECE
-                        CallControlButton(
-                            icon = audioRouteIcon,
-                            label = audioRouteLabel,
-                            backgroundColor = if (isAudioRouteHighlighted) PokieLanActiveBadge.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.2f),
-                            iconTint = Color.White,
-                            onClick = {
-                                if (availableAudioRoutes.size > 2) {
-                                    showAudioRouteSheet = true
-                                } else {
-                                    viewModel.toggleSpeaker()
-                                }
+                            // Audio Output Route (Bluetooth / Speaker / Earpiece / Headset)
+                            val audioRouteIcon = when (activeAudioRoute) {
+                                AudioRoute.BLUETOOTH -> Icons.Default.Bluetooth
+                                AudioRoute.WIRED_HEADSET -> Icons.Default.Headset
+                                AudioRoute.SPEAKER -> Icons.AutoMirrored.Filled.VolumeUp
+                                AudioRoute.EARPIECE -> Icons.AutoMirrored.Filled.VolumeDown
                             }
-                        )
-
-                        // Video / Camera Toggle (if video call & not currently screen sharing)
-                        if (callSession?.callType == CallType.VIDEO && !isScreenSharing) {
+                            val audioRouteLabel = when (activeAudioRoute) {
+                                AudioRoute.BLUETOOTH -> "Bluetooth"
+                                AudioRoute.WIRED_HEADSET -> "Headset"
+                                AudioRoute.SPEAKER -> "Speaker"
+                                AudioRoute.EARPIECE -> "Earpiece"
+                            }
+                            val isAudioRouteHighlighted = activeAudioRoute != AudioRoute.EARPIECE
                             CallControlButton(
-                                icon = if (isVideoEnabled) Icons.Default.Videocam else Icons.Default.VideocamOff,
-                                label = if (isVideoEnabled) "Video Off" else "Video On",
-                                backgroundColor = if (!isVideoEnabled) Color.White else Color.White.copy(alpha = 0.2f),
-                                iconTint = if (!isVideoEnabled) Color.Black else Color.White,
-                                onClick = viewModel::toggleVideo
-                            )
-
-                            CallControlButton(
-                                icon = Icons.Default.Cameraswitch,
-                                label = "Flip",
-                                onClick = viewModel::switchCamera
-                            )
-                        } else if (!isScreenSharing && !isBtCall) {
-                            // Switch to Video Call Option for Audio Calls
-                            CallControlButton(
-                                icon = Icons.Default.Videocam,
-                                label = "Video",
-                                backgroundColor = Color.White.copy(alpha = 0.2f),
+                                icon = audioRouteIcon,
+                                label = audioRouteLabel,
+                                backgroundColor = if (isAudioRouteHighlighted) PokieLanActiveBadge.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.2f),
                                 iconTint = Color.White,
-                                onClick = viewModel::requestSwitchToVideo
-                            )
-                        }
-
-                        // Screen Share Toggle (for active LAN/WebRTC calls)
-                        if (!isBtCall && isConnected) {
-                            CallControlButton(
-                                icon = if (isScreenSharing) Icons.Default.StopScreenShare else Icons.Default.ScreenShare,
-                                label = if (isScreenSharing) "Stop" else "Share",
-                                backgroundColor = if (isScreenSharing) Color(0xFF2979FF) else Color.White.copy(alpha = 0.2f),
-                                iconTint = Color.White,
+                                size = controlBtnSize,
                                 onClick = {
-                                    if (isScreenSharing) {
-                                        viewModel.stopScreenShare()
+                                    if (availableAudioRoutes.size > 2) {
+                                        showAudioRouteSheet = true
                                     } else {
-                                        val mpm = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-                                        screenShareLauncher.launch(mpm.createScreenCaptureIntent())
+                                        viewModel.toggleSpeaker()
                                     }
                                 }
                             )
+
+                            // Video / Camera Toggle (if video call & not currently screen sharing)
+                            if (isCameraVideoControls) {
+                                CallControlButton(
+                                    icon = if (isVideoEnabled) Icons.Default.Videocam else Icons.Default.VideocamOff,
+                                    label = if (isVideoEnabled) "Cam Off" else "Cam On",
+                                    backgroundColor = if (!isVideoEnabled) Color.White else Color.White.copy(alpha = 0.2f),
+                                    iconTint = if (!isVideoEnabled) Color.Black else Color.White,
+                                    size = controlBtnSize,
+                                    onClick = viewModel::toggleVideo
+                                )
+
+                                CallControlButton(
+                                    icon = Icons.Default.Cameraswitch,
+                                    label = "Flip",
+                                    size = controlBtnSize,
+                                    onClick = viewModel::switchCamera
+                                )
+                            } else if (!isScreenSharing && !isBtCall) {
+                                // Switch to Video Call Option for Audio Calls
+                                CallControlButton(
+                                    icon = Icons.Default.Videocam,
+                                    label = "Video",
+                                    backgroundColor = Color.White.copy(alpha = 0.2f),
+                                    iconTint = Color.White,
+                                    size = controlBtnSize,
+                                    onClick = viewModel::requestSwitchToVideo
+                                )
+                            }
+
+                            // Screen Share Toggle (for active LAN/WebRTC calls)
+                            if (hasShareControl) {
+                                CallControlButton(
+                                    icon = if (isScreenSharing) Icons.AutoMirrored.Filled.StopScreenShare else Icons.AutoMirrored.Filled.ScreenShare,
+                                    label = if (isScreenSharing) "Stop" else "Share",
+                                    backgroundColor = if (isScreenSharing) Color(0xFF2979FF) else Color.White.copy(alpha = 0.2f),
+                                    iconTint = Color.White,
+                                    size = controlBtnSize,
+                                    onClick = {
+                                        if (isScreenSharing) {
+                                            viewModel.stopScreenShare()
+                                        } else {
+                                            val mpm = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                                            screenShareLauncher.launch(mpm.createScreenCaptureIntent())
+                                        }
+                                    }
+                                )
+                            }
                         }
 
-                        // End Call Button
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Row 2: Dedicated Centered End Call Button
                         CallControlButton(
                             icon = Icons.Default.CallEnd,
-                            label = "End",
+                            label = "End Call",
                             backgroundColor = PokieCallRed,
                             iconTint = Color.White,
-                            size = 56.dp,
+                            size = 64.dp,
                             onClick = viewModel::hangupCall
                         )
                     }
@@ -577,7 +594,7 @@ fun CallScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = Icons.Default.ScreenShare,
+                        imageVector = Icons.AutoMirrored.Filled.ScreenShare,
                         contentDescription = null,
                         tint = Color.White,
                         modifier = Modifier.size(16.dp)
@@ -609,7 +626,7 @@ fun CallScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Icon(
-                        imageVector = Icons.Default.ScreenShare,
+                        imageVector = Icons.AutoMirrored.Filled.ScreenShare,
                         contentDescription = null,
                         tint = Color(0xFF60A5FA),
                         modifier = Modifier.size(36.dp)
@@ -634,7 +651,7 @@ fun CallScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = PokieCallRed)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.StopScreenShare,
+                            imageVector = Icons.AutoMirrored.Filled.StopScreenShare,
                             contentDescription = null,
                             tint = Color.White,
                             modifier = Modifier.size(18.dp)
