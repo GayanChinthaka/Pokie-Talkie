@@ -49,7 +49,11 @@ class ChatRepository(
         isFromMe: Boolean,
         status: MessageStatus = if (isFromMe) MessageStatus.SENDING else MessageStatus.DELIVERED,
         extraData: String? = null,
-        id: String = UUID.randomUUID().toString()
+        id: String = UUID.randomUUID().toString(),
+        localFilePath: String? = null,
+        mimeType: String? = null,
+        fileName: String? = null,
+        fileSize: Long? = null
     ): Message {
         val message = Message(
             id = id,
@@ -60,10 +64,42 @@ class ChatRepository(
             status = status,
             timestamp = System.currentTimeMillis(),
             isFromMe = isFromMe,
-            extraData = extraData
+            extraData = extraData,
+            localFilePath = localFilePath,
+            mimeType = mimeType,
+            fileName = fileName,
+            fileSize = fileSize
         )
         messageDao.insertMessage(message.toEntity())
         return message
+    }
+
+    suspend fun getMessageById(messageId: String): Message? {
+        return messageDao.getMessageById(messageId)?.toDomain()
+    }
+
+    suspend fun editMessage(messageId: String, newContent: String) {
+        messageDao.editMessageContent(messageId, newContent)
+    }
+
+    suspend fun markMessageUnsent(messageId: String) {
+        val existing = messageDao.getMessageById(messageId)
+        deleteLocalFileQuietly(existing?.localFilePath)
+        messageDao.markMessageUnsent(messageId)
+    }
+
+    suspend fun deleteMessageForMe(messageId: String) {
+        val existing = messageDao.getMessageById(messageId)
+        deleteLocalFileQuietly(existing?.localFilePath)
+        messageDao.deleteMessageById(messageId)
+    }
+
+    private fun deleteLocalFileQuietly(path: String?) {
+        if (path.isNullOrBlank()) return
+        try {
+            val f = java.io.File(path)
+            if (f.exists()) f.delete()
+        } catch (_: Exception) {}
     }
 
     suspend fun updateMessageStatus(messageId: String, status: MessageStatus) {
@@ -110,6 +146,8 @@ class ChatRepository(
     }
 
     suspend fun clearChat(peerId: String, myId: String) {
+        val paths = messageDao.getMediaPathsForConversation(peerId, myId)
+        paths.forEach { deleteLocalFileQuietly(it) }
         messageDao.clearConversation(peerId, myId)
     }
 
@@ -122,7 +160,13 @@ class ChatRepository(
         status = status,
         timestamp = timestamp,
         isFromMe = isFromMe,
-        extraData = extraData
+        extraData = extraData,
+        localFilePath = localFilePath,
+        mimeType = mimeType,
+        fileName = fileName,
+        fileSize = fileSize,
+        isEdited = isEdited,
+        isDeleted = isDeleted
     )
 
     private fun Message.toEntity() = MessageEntity(
@@ -134,7 +178,13 @@ class ChatRepository(
         status = status,
         timestamp = timestamp,
         isFromMe = isFromMe,
-        extraData = extraData
+        extraData = extraData,
+        localFilePath = localFilePath,
+        mimeType = mimeType,
+        fileName = fileName,
+        fileSize = fileSize,
+        isEdited = isEdited,
+        isDeleted = isDeleted
     )
 }
 
@@ -179,9 +229,9 @@ class ContactRepository(
                 isOnlineLan = contact.isOnlineLan,
                 lastSeenTimestamp = contact.lastSeenTimestamp,
                 fcmToken = contact.fcmToken.ifBlank { existing.fcmToken },
-                // No payload carries a colour, so an incoming Contact only ever has the
-                // default (0xFF00A884); always keep the stored one.
-                avatarColor = existing.avatarColor
+                avatarColor = if (contact.avatarColor != 0xFF00A884L) contact.avatarColor else existing.avatarColor,
+                profileImagePath = contact.profileImagePath ?: existing.profileImagePath,
+                avatarHash = contact.avatarHash.ifBlank { existing.avatarHash }
             )
             contactDao.insertOrUpdateContact(merged)
         } else {
@@ -207,6 +257,14 @@ class ContactRepository(
         contactDao.updateContactName(id, newName)
     }
 
+    suspend fun updateAvatarInfo(id: String, avatarColor: Long, profileImagePath: String?, avatarHash: String) {
+        contactDao.updateAvatarInfo(id, avatarColor, profileImagePath, avatarHash)
+    }
+
+    suspend fun updateAvatarColor(id: String, avatarColor: Long) {
+        contactDao.updateAvatarColor(id, avatarColor)
+    }
+
     suspend fun updateBluetoothAddress(id: String, btAddress: String) {
         contactDao.updateBluetoothAddress(id, btAddress)
     }
@@ -216,6 +274,13 @@ class ContactRepository(
     }
 
     suspend fun deleteContact(id: String) {
+        val existing = contactDao.getContactById(id)
+        if (!existing?.profileImagePath.isNullOrBlank()) {
+            try {
+                val f = java.io.File(existing!!.profileImagePath!!)
+                if (f.exists()) f.delete()
+            } catch (_: Exception) {}
+        }
         contactDao.deleteContact(id)
     }
 
@@ -232,6 +297,8 @@ class ContactRepository(
         bluetoothAddress = bluetoothAddress,
         isOnlineLan = isOnlineLan,
         avatarColor = avatarColor,
+        profileImagePath = profileImagePath,
+        avatarHash = avatarHash,
         lastSeenTimestamp = lastSeenTimestamp
     )
 
@@ -244,6 +311,8 @@ class ContactRepository(
         bluetoothAddress = bluetoothAddress,
         isOnlineLan = isOnlineLan,
         avatarColor = avatarColor,
+        profileImagePath = profileImagePath,
+        avatarHash = avatarHash,
         lastSeenTimestamp = lastSeenTimestamp
     )
 }

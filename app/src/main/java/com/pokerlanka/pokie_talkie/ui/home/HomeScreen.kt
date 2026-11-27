@@ -1,13 +1,15 @@
 package com.pokerlanka.pokie_talkie.ui.home
 
-import androidx.compose.animation.AnimatedVisibility
+import android.widget.Toast
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,10 +31,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.ui.platform.LocalContext
 import com.pokerlanka.pokie_talkie.data.local.ConnectionMode
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -85,10 +92,13 @@ fun HomeScreen(
     onNavigateToDevHub: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val state by viewModel.uiState.collectAsState()
 
     var addContactName by remember { mutableStateOf("") }
     var addContactIp by remember { mutableStateOf("") }
+    var selectedContactForMenu by remember { mutableStateOf<Contact?>(null) }
+    var contactPendingDelete by remember { mutableStateOf<Contact?>(null) }
 
     Scaffold(
         topBar = {
@@ -155,7 +165,7 @@ fun HomeScreen(
             FloatingActionButton(
                 onClick = viewModel::openAddContactDialog,
                 containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = Color.White,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
                 shape = CircleShape,
                 modifier = Modifier.padding(bottom = 12.dp, end = 4.dp)
             ) {
@@ -283,7 +293,12 @@ fun HomeScreen(
                         ContactItemCard(
                             contact = contact,
                             unreadCount = unreadCount,
-                            onClick = { onNavigateToChat(contact.id) }
+                            onClick = {
+                                if (contact.id.isNotBlank()) {
+                                    onNavigateToChat(contact.id)
+                                }
+                            },
+                            onLongClick = { selectedContactForMenu = contact }
                         )
                     }
                 }
@@ -351,19 +366,143 @@ fun HomeScreen(
             containerColor = MaterialTheme.colorScheme.surface
         )
     }
+
+    // Contact Long-Press Options Dialog
+    val menuContact = selectedContactForMenu
+    if (menuContact != null) {
+        AlertDialog(
+            onDismissRequest = { selectedContactForMenu = null },
+            title = {
+                Text(
+                    text = menuContact.name,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    HomeContactActionRow(
+                        icon = Icons.Default.Call,
+                        label = "Voice Call",
+                        onClick = {
+                            selectedContactForMenu = null
+                            if (viewModel.initiateCall(menuContact, CallType.VOICE)) {
+                                onNavigateToCall(menuContact.id, CallType.VOICE)
+                            }
+                        }
+                    )
+                    if (state.connectionMode == ConnectionMode.WIFI && menuContact.isOnlineLan) {
+                        HomeContactActionRow(
+                            icon = Icons.Default.Videocam,
+                            label = "Video Call",
+                            onClick = {
+                                selectedContactForMenu = null
+                                if (viewModel.initiateCall(menuContact, CallType.VIDEO)) {
+                                    onNavigateToCall(menuContact.id, CallType.VIDEO)
+                                }
+                            }
+                        )
+                    }
+                    HomeContactActionRow(
+                        icon = Icons.Default.DeleteSweep,
+                        label = "Clear Chat History",
+                        onClick = {
+                            viewModel.clearChatHistory(menuContact.id)
+                            selectedContactForMenu = null
+                            Toast.makeText(context, "Chat history cleared", Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                    HomeContactActionRow(
+                        icon = Icons.Default.Delete,
+                        label = "Delete Chat & Contact",
+                        tint = MaterialTheme.colorScheme.error,
+                        onClick = {
+                            selectedContactForMenu = null
+                            contactPendingDelete = menuContact
+                        }
+                    )
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { selectedContactForMenu = null }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
+
+    // Confirm Delete Contact & Chat
+    val deleteTarget = contactPendingDelete
+    if (deleteTarget != null) {
+        AlertDialog(
+            onDismissRequest = { contactPendingDelete = null },
+            title = { Text("Delete ${deleteTarget.name}?", fontWeight = FontWeight.Bold) },
+            text = { Text("This removes the contact and deletes all messages & downloaded media from this device.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteContact(deleteTarget.id)
+                        contactPendingDelete = null
+                        Toast.makeText(context, "Deleted ${deleteTarget.name}", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { contactPendingDelete = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }
 
+@Composable
+private fun HomeContactActionRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    tint: Color = MaterialTheme.colorScheme.onSurface,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(imageVector = icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(
+            text = label,
+            color = tint,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ContactItemCard(
     contact: Contact,
     unreadCount: Int = 0,
     onClick: () -> Unit,
+    onLongClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .clip(RoundedCornerShape(16.dp))
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            ),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
@@ -376,6 +515,7 @@ fun ContactItemCard(
             AvatarView(
                 name = contact.name,
                 backgroundColor = Color(contact.avatarColor),
+                imagePath = contact.profileImagePath,
                 isOnlineLan = contact.isOnlineLan,
                 size = 50.dp
             )
@@ -412,7 +552,7 @@ fun ContactItemCard(
                     ) {
                         Text(
                             text = if (unreadCount > 99) "99+" else unreadCount.toString(),
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onPrimary,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )

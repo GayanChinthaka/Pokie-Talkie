@@ -99,6 +99,7 @@ fun CallScreen(
 ) {
     val context = LocalContext.current
     val callSession by viewModel.currentCall.collectAsState()
+    val peerContact by viewModel.peerContact.collectAsState()
     val localVideoTrack by viewModel.localVideoTrack.collectAsState()
     val remoteVideoTrack by viewModel.remoteVideoTrack.collectAsState()
     val isMuted by viewModel.isMuted.collectAsState()
@@ -283,7 +284,8 @@ fun CallScreen(
                         AvatarView(
                             name = callSession?.peerName ?: "Family",
                             size = 120.dp,
-                            backgroundColor = MaterialTheme.colorScheme.primary
+                            backgroundColor = Color(peerContact?.avatarColor ?: MaterialTheme.colorScheme.primary.value.toLong()),
+                            imagePath = peerContact?.profileImagePath
                         )
                     }
 

@@ -16,7 +16,13 @@ data class MessageEntity(
     val status: MessageStatus,
     val timestamp: Long,
     val isFromMe: Boolean,
-    val extraData: String? = null
+    val extraData: String? = null,
+    val localFilePath: String? = null,
+    val mimeType: String? = null,
+    val fileName: String? = null,
+    val fileSize: Long? = null,
+    val isEdited: Boolean = false,
+    val isDeleted: Boolean = false
 )
 
 @Entity(tableName = "contacts")
@@ -30,5 +36,7 @@ data class ContactEntity(
     val bluetoothAddress: String = "",
     val isOnlineLan: Boolean,
     val avatarColor: Long,
+    val profileImagePath: String? = null,
+    val avatarHash: String = "",
     val lastSeenTimestamp: Long
 )

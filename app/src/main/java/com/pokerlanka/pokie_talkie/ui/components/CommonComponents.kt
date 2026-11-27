@@ -1,6 +1,8 @@
 package com.pokerlanka.pokie_talkie.ui.components
 
+import android.content.Context
 import android.graphics.BitmapFactory
+import android.os.Build
 import android.util.LruCache
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -9,9 +11,12 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,13 +26,16 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Call
@@ -56,11 +64,17 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.ImageLoader
+import coil.compose.AsyncImage
+import coil.decode.GifDecoder
+import coil.decode.ImageDecoderDecoder
 import com.pokerlanka.pokie_talkie.data.model.Message
 import com.pokerlanka.pokie_talkie.data.model.MessageStatus
 import com.pokerlanka.pokie_talkie.data.model.MessageType
@@ -75,6 +89,7 @@ import com.pokerlanka.pokie_talkie.ui.theme.PokieLightTextPrimary
 import com.pokerlanka.pokie_talkie.ui.theme.PokieLightTextSecondary
 import com.pokerlanka.pokie_talkie.ui.theme.PokieTextPrimary
 import com.pokerlanka.pokie_talkie.ui.theme.PokieTextSecondary
+import com.pokerlanka.pokie_talkie.utils.MediaStorageHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -459,10 +474,34 @@ fun SwipeableIncomingCallControl(
     }
 }
 
+object PokieImageLoader {
+    @Volatile
+    private var instance: ImageLoader? = null
+
+    fun get(context: Context): ImageLoader {
+        return instance ?: synchronized(this) {
+            instance ?: ImageLoader.Builder(context.applicationContext)
+                .components {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        add(ImageDecoderDecoder.Factory())
+                    } else {
+                        add(GifDecoder.Factory())
+                    }
+                }
+                .crossfade(true)
+                .build()
+                .also { instance = it }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChatBubble(
     message: Message,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null,
+    onMediaClick: (() -> Unit)? = null
 ) {
     val isMe = message.isFromMe
     val isDark = LocalIsDarkTheme.current
@@ -483,6 +522,7 @@ fun ChatBubble(
     }
 
     val context = androidx.compose.ui.platform.LocalContext.current
+    val imageLoader = remember(context) { PokieImageLoader.get(context) }
     val formattedTime = remember(message.timestamp) {
         val nowCal = java.util.Calendar.getInstance()
         val msgCal = java.util.Calendar.getInstance().apply { timeInMillis = message.timestamp }
@@ -511,39 +551,125 @@ fun ChatBubble(
                 bottomEnd = if (isMe) 2.dp else 16.dp
             ),
             color = bubbleColor,
-            shadowElevation = 1.dp
+            shadowElevation = 1.dp,
+            modifier = Modifier
+                .widthIn(max = 280.dp)
+                .clip(
+                    RoundedCornerShape(
+                        topStart = 16.dp,
+                        topEnd = 16.dp,
+                        bottomStart = if (isMe) 16.dp else 2.dp,
+                        bottomEnd = if (isMe) 2.dp else 16.dp
+                    )
+                )
+                .combinedClickable(
+                    onClick = { onMediaClick?.invoke() },
+                    onLongClick = { onLongClick?.invoke() }
+                )
         ) {
             Column(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
             ) {
-                when (message.type) {
-                    MessageType.STICKER -> {
+                when {
+                    message.isDeleted -> {
+                        Text(
+                            text = "This message was unsent",
+                            color = timeTextColor,
+                            fontStyle = FontStyle.Italic,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp)
+                        )
+                    }
+                    message.type == MessageType.STICKER && !message.localFilePath.isNullOrBlank() -> {
+                        AsyncImage(
+                            model = File(message.localFilePath),
+                            contentDescription = "Sticker",
+                            imageLoader = imageLoader,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .size(150.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                        )
+                    }
+                    message.type == MessageType.STICKER -> {
                         Text(
                             text = message.content,
                             fontSize = 54.sp,
                             modifier = Modifier.padding(4.dp)
                         )
                     }
-                    MessageType.EMOJI -> {
-                        Text(
-                            text = message.content,
-                            fontSize = 36.sp,
-                            modifier = Modifier.padding(2.dp)
+                    (message.type == MessageType.IMAGE || message.type == MessageType.GIF) && !message.localFilePath.isNullOrBlank() -> {
+                        AsyncImage(
+                            model = File(message.localFilePath),
+                            contentDescription = if (message.type == MessageType.GIF) "GIF" else "Photo",
+                            imageLoader = imageLoader,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .widthIn(min = 140.dp, max = 240.dp)
+                                .heightIn(min = 100.dp, max = 260.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
                         )
+                    }
+                    message.type == MessageType.FILE -> {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.25f))
+                                .padding(horizontal = 10.dp, vertical = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.InsertDriveFile,
+                                contentDescription = "Document",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f, fill = false)) {
+                                Text(
+                                    text = message.fileName ?: message.content,
+                                    color = contentTextColor,
+                                    fontWeight = FontWeight.Medium,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                val sizeLabel = MediaStorageHelper.formatFileSize(message.fileSize)
+                                if (sizeLabel.isNotBlank()) {
+                                    Text(
+                                        text = sizeLabel,
+                                        color = timeTextColor,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+                        }
                     }
                     else -> {
                         Text(
                             text = message.content,
                             color = contentTextColor,
-                            style = MaterialTheme.typography.bodyLarge
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.padding(horizontal = 2.dp)
                         )
                     }
                 }
+
+                Spacer(modifier = Modifier.height(2.dp))
 
                 Row(
                     modifier = Modifier.align(Alignment.End),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    if (message.isEdited && !message.isDeleted) {
+                        Text(
+                            text = "Edited · ",
+                            color = timeTextColor,
+                            fontSize = 10.sp,
+                            fontStyle = FontStyle.Italic
+                        )
+                    }
                     Text(
                         text = formattedTime,
                         color = timeTextColor,

@@ -51,7 +51,9 @@ class FcmSignalingClient(
         messageType: MessageType? = null,
         isCameraOn: Boolean? = null,
         isScreenShare: Boolean? = null,
-        isBluetoothVoice: Boolean = false
+        isBluetoothVoice: Boolean = false,
+        includeProfileMeta: Boolean = false,
+        avatarBase64: String? = null
     ): SignalingPayload {
         val fcmToken = userPreferencesManager.getFcmToken().takeIf { it.isNotBlank() }
         val localIp = lanSocketServer.getLocalIpAddress()
@@ -73,7 +75,10 @@ class FcmSignalingClient(
             isBluetoothVoice = isBluetoothVoice,
             senderFcmToken = fcmToken,
             senderIp = localIp,
-            senderPort = lanSocketServer.serverPort
+            senderPort = lanSocketServer.serverPort,
+            senderAvatarColor = if (includeProfileMeta) userPreferencesManager.getAvatarColor() else null,
+            senderAvatarHash = if (includeProfileMeta) userPreferencesManager.getProfileImageHash() else null,
+            avatarBase64 = avatarBase64
         )
     }
 
@@ -247,7 +252,8 @@ class FcmSignalingClient(
     fun sendPing(targetId: String) {
         val payload = createPayload(
             type = SignalingType.PING,
-            targetId = targetId
+            targetId = targetId,
+            includeProfileMeta = true
         )
         dispatchPayload(targetId, payload)
     }
@@ -255,7 +261,46 @@ class FcmSignalingClient(
     fun sendPong(targetId: String) {
         val payload = createPayload(
             type = SignalingType.PONG,
-            targetId = targetId
+            targetId = targetId,
+            includeProfileMeta = true
+        )
+        dispatchPayload(targetId, payload)
+    }
+
+    fun sendAvatarRequest(targetId: String) {
+        val payload = createPayload(
+            type = SignalingType.AVATAR_REQUEST,
+            targetId = targetId,
+            includeProfileMeta = true
+        )
+        dispatchPayload(targetId, payload)
+    }
+
+    fun sendAvatarData(targetId: String, avatarHash: String, avatarBase64: String) {
+        val payload = createPayload(
+            type = SignalingType.AVATAR_DATA,
+            targetId = targetId,
+            includeProfileMeta = true,
+            avatarBase64 = avatarBase64
+        ).copy(senderAvatarHash = avatarHash)
+        dispatchPayload(targetId, payload)
+    }
+
+    fun sendMessageEdit(targetId: String, messageId: String, newContent: String) {
+        val payload = createPayload(
+            type = SignalingType.MESSAGE_EDIT,
+            targetId = targetId,
+            messageId = messageId,
+            messageContent = newContent
+        )
+        dispatchPayload(targetId, payload)
+    }
+
+    fun sendMessageUnsend(targetId: String, messageId: String) {
+        val payload = createPayload(
+            type = SignalingType.MESSAGE_UNSEND,
+            targetId = targetId,
+            messageId = messageId
         )
         dispatchPayload(targetId, payload)
     }
@@ -276,11 +321,16 @@ class FcmSignalingClient(
         return dispatchPayloadSync(targetId, payload)
     }
 
-    fun broadcastProfileUpdate(newName: String) {
+    fun broadcastProfileUpdate(newName: String, avatarColor: Long, avatarHash: String) {
         val payload = createPayload(
             type = SignalingType.PROFILE_UPDATE,
-            targetId = ""
-        ).copy(senderName = newName)
+            targetId = "",
+            includeProfileMeta = true
+        ).copy(
+            senderName = newName,
+            senderAvatarColor = avatarColor,
+            senderAvatarHash = avatarHash
+        )
         scope.launch(Dispatchers.IO) {
             val contacts = contactRepository.getContacts().firstOrNull() ?: emptyList()
             for (c in contacts) {
@@ -347,8 +397,7 @@ class FcmSignalingClient(
             val canSendViaBluetooth = when (payload.type) {
                 SignalingType.ICE_CANDIDATE,
                 SignalingType.RENEGOTIATION_OFFER,
-                SignalingType.RENEGOTIATION_ANSWER,
-                SignalingType.PROFILE_UPDATE -> false
+                SignalingType.RENEGOTIATION_ANSWER -> false
                 else -> true
             }
 

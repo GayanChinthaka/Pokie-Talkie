@@ -30,8 +30,13 @@ import com.pokerlanka.pokie_talkie.data.repository.ChatRepository
 import com.pokerlanka.pokie_talkie.data.repository.ContactRepository
 import com.pokerlanka.pokie_talkie.fcm.FcmSignalingClient
 import com.pokerlanka.pokie_talkie.lan.LanDiscoveryManager
+import com.pokerlanka.pokie_talkie.lan.LanMediaServer
 import com.pokerlanka.pokie_talkie.lan.LanSocketServer
+import com.pokerlanka.pokie_talkie.lan.MediaTransferHeader
+import com.pokerlanka.pokie_talkie.lan.MediaTransferKind
 import com.pokerlanka.pokie_talkie.lan.ConnectivityMonitor
+import com.pokerlanka.pokie_talkie.utils.MediaStorageHelper
+import com.pokerlanka.pokie_talkie.utils.PreparedMediaFile
 import com.pokerlanka.pokie_talkie.lan.ActiveTransportMode
 import com.pokerlanka.pokie_talkie.telecom.PokieConnectionService
 import com.pokerlanka.pokie_talkie.telecom.TelecomCallManager
@@ -48,6 +53,7 @@ import com.pokerlanka.pokie_talkie.telecom.EndReason
 import com.pokerlanka.pokie_talkie.telecom.ProximityLock
 import com.pokerlanka.pokie_talkie.service.PokieLocalService
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.withTimeoutOrNull
 import org.webrtc.SessionDescription
 
@@ -97,6 +103,7 @@ class AppContainer(val context: Context) {
 
     // Networking & Bluetooth Transport
     val lanSocketServer by lazy { LanSocketServer(applicationScope, gson) }
+    val lanMediaServer by lazy { LanMediaServer(context, applicationScope, gson) }
     val lanDiscoveryManager by lazy { LanDiscoveryManager(context, contactRepository, applicationScope) }
     val bluetoothTransportManager by lazy { BluetoothTransportManager(context, applicationScope, contactRepository, gson) }
     val bluetoothVoiceManager by lazy {
@@ -138,6 +145,7 @@ class AppContainer(val context: Context) {
 
     // FCM doesn't preserve order, so ICE candidates can arrive before their OFFER: hold them by callId
     private val earlyIceCandidates = java.util.concurrent.ConcurrentHashMap<String, MutableList<IceCandidateModel>>()
+    private val inFlightAvatarRequests = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
     fun onChatOpened(peerId: String) {
         activeChatPeerId = peerId
@@ -169,8 +177,25 @@ class AppContainer(val context: Context) {
 
     fun updateMyProfileName(newName: String) {
         userPreferencesManager.setUserName(newName)
-        lanDiscoveryManager.updateProfileName(newName)
-        fcmSignalingClient.broadcastProfileUpdate(newName)
+        onMyProfileUpdated(pushAvatarToPeers = false)
+    }
+
+    fun onMyProfileUpdated(pushAvatarToPeers: Boolean) {
+        val name = userPreferencesManager.getUserName()
+        val color = userPreferencesManager.getAvatarColor()
+        val hash = userPreferencesManager.getProfileImageHash()
+        lanDiscoveryManager.updateProfile(name, color, hash)
+        fcmSignalingClient.broadcastProfileUpdate(name, color, hash)
+        if (pushAvatarToPeers && hash.isNotBlank()) {
+            applicationScope.launch(Dispatchers.IO) {
+                val contacts = contactRepository.getContacts().firstOrNull() ?: emptyList()
+                for (c in contacts) {
+                    if (c.id != currentUserId && !c.id.contains(":") && !c.id.startsWith("lan_")) {
+                        sendMyAvatarToPeer(c.id)
+                    }
+                }
+            }
+        }
     }
 
     suspend fun addManualContact(name: String, ipAddress: String, port: Int = 52220, fcmToken: String = "") {
@@ -192,23 +217,37 @@ class AppContainer(val context: Context) {
         resetAudioModeToNormal()
         telecomCallManager.registerPhoneAccount()
 
-        // Start LAN Socket Server only if in Wi-Fi mode
-        if (userPreferencesManager.getConnectionMode() == ConnectionMode.WIFI) {
-            lanSocketServer.start(52220)
-        }
-
-        // Initialize and start NSD / mDNS discovery with real profile info
-        // Item 3.4: resetAllLanStatus() before starting discovery
-        applicationScope.launch(Dispatchers.IO) {
-            contactRepository.resetAllLanStatus()
-            val savedFcmToken = userPreferencesManager.getFcmToken()
-            lanDiscoveryManager.initialize(currentUserId, currentUserName, lanSocketServer.serverPort, savedFcmToken)
-            lanDiscoveryManager.onPeerDiscovered = { peer ->
-                Log.i(tag, "LAN peer discovered: ${peer.name} (${peer.id}), sending direct PING exchange")
-                if (userPreferencesManager.getConnectionMode() == ConnectionMode.WIFI) {
-                    fcmSignalingClient.sendPing(peer.id)
+        // Initialize NSD / mDNS profile info synchronously BEFORE ensureListenersActive()
+        // so registerService() never advertises an empty userId ("Pokie_").
+        val savedFcmToken = userPreferencesManager.getFcmToken()
+        lanDiscoveryManager.initialize(
+            userId = currentUserId,
+            userName = currentUserName,
+            port = lanSocketServer.serverPort,
+            fcmToken = savedFcmToken,
+            avatarColor = userPreferencesManager.getAvatarColor(),
+            avatarHash = userPreferencesManager.getProfileImageHash()
+        )
+        lanDiscoveryManager.onPeerDiscovered = { peer ->
+            Log.i(tag, "LAN peer discovered: ${peer.name} (${peer.id}), sending direct PING exchange")
+            if (userPreferencesManager.getConnectionMode() == ConnectionMode.WIFI) {
+                fcmSignalingClient.sendPing(peer.id)
+                applicationScope.launch(Dispatchers.IO) {
+                    syncAvatarIfNeeded(peer.id, peer.avatarColor, peer.avatarHash)
                 }
             }
+        }
+
+        // Start LAN Socket & Media Servers only if in Wi-Fi mode
+        if (userPreferencesManager.getConnectionMode() == ConnectionMode.WIFI) {
+            lanSocketServer.start(52220)
+            lanMediaServer.start(LanMediaServer.DEFAULT_MEDIA_PORT)
+        }
+
+        // Reset LAN status, remove any legacy blank-ID ghost contacts, and start discovery
+        applicationScope.launch(Dispatchers.IO) {
+            contactRepository.deleteContact("")
+            contactRepository.resetAllLanStatus()
             if (userPreferencesManager.getConnectionMode() == ConnectionMode.WIFI) {
                 lanDiscoveryManager.startDiscoveryAndRegistration()
             }
@@ -284,8 +323,9 @@ class AppContainer(val context: Context) {
             bluetoothTransportManager.syncPairedDevicesToContacts()
         }
 
-        // Listen for direct LAN & Bluetooth incoming payloads
+        // Listen for direct LAN, Media & Bluetooth incoming payloads
         listenForLanPayloads()
+        listenForLanMediaTransfers()
         listenForBluetoothPayloads()
 
         // Item 4.3: Auto-check for updates on app start
@@ -373,6 +413,84 @@ class AppContainer(val context: Context) {
         applicationScope.launch(Dispatchers.IO) {
             lanSocketServer.incomingPayloads.collect { payload ->
                 handleIncomingSignalingPayload(payload, "LAN")
+            }
+        }
+    }
+
+    private fun listenForLanMediaTransfers() {
+        applicationScope.launch(Dispatchers.IO) {
+            lanMediaServer.incomingTransfers.collect { transfer ->
+                val header = transfer.header
+                val senderId = header.senderId
+                if (senderId.isBlank()) return@collect
+
+                when (header.kind) {
+                    MediaTransferKind.AVATAR -> {
+                        val existing = contactRepository.getContact(senderId)
+                        val color = header.avatarColor ?: existing?.avatarColor ?: UserPreferencesManager.DEFAULT_AVATAR_COLOR
+                        val hash = header.avatarHash ?: ""
+                        if (existing != null) {
+                            contactRepository.updateAvatarInfo(
+                                id = senderId,
+                                avatarColor = color,
+                                profileImagePath = transfer.savedFile.absolutePath,
+                                avatarHash = hash
+                            )
+                        } else {
+                            contactRepository.saveOrUpdateContact(
+                                Contact(
+                                    id = senderId,
+                                    name = header.senderName.ifBlank { "Family Member" },
+                                    ipAddress = transfer.sourceIp ?: "",
+                                    isOnlineLan = !transfer.sourceIp.isNullOrBlank(),
+                                    avatarColor = color,
+                                    profileImagePath = transfer.savedFile.absolutePath,
+                                    avatarHash = hash
+                                )
+                            )
+                        }
+                        inFlightAvatarRequests.remove(senderId)
+                    }
+                    MediaTransferKind.MEDIA -> {
+                        val msgId = header.messageId?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
+                        val msgType = header.messageType ?: MessageType.FILE
+                        val isChatCurrentlyOpen = activeChatPeerId == senderId
+                        val initialStatus = if (isChatCurrentlyOpen) MessageStatus.READ else MessageStatus.DELIVERED
+                        val displayContent = when (msgType) {
+                            MessageType.IMAGE -> "Photo"
+                            MessageType.GIF -> "GIF"
+                            MessageType.STICKER -> "Sticker"
+                            else -> header.fileName ?: "File"
+                        }
+
+                        chatRepository.saveMessage(
+                            id = msgId,
+                            senderId = senderId,
+                            receiverId = currentUserId,
+                            content = displayContent,
+                            type = msgType,
+                            isFromMe = false,
+                            status = initialStatus,
+                            localFilePath = transfer.savedFile.absolutePath,
+                            mimeType = header.mimeType,
+                            fileName = header.fileName,
+                            fileSize = header.fileSize
+                        )
+
+                        if (isChatCurrentlyOpen) {
+                            fcmSignalingClient.sendReadReceipt(senderId, listOf(msgId))
+                        } else {
+                            fcmSignalingClient.sendDeliveryReceipt(senderId, msgId)
+                            val notifText = when (msgType) {
+                                MessageType.IMAGE -> "📷 Photo"
+                                MessageType.GIF -> "🎞️ GIF"
+                                MessageType.STICKER -> "✨ Sticker"
+                                else -> "📎 ${header.fileName ?: "File"}"
+                            }
+                            showChatMessageNotification(senderId, header.senderName.ifBlank { "Family Member" }, notifText)
+                        }
+                    }
+                }
             }
         }
     }
@@ -467,6 +585,13 @@ class AppContainer(val context: Context) {
                     } else if (changed) {
                         contactRepository.saveOrUpdateContact(updated.copy(lastSeenTimestamp = System.currentTimeMillis()))
                     }
+                }
+                if (payload.senderAvatarColor != null || payload.senderAvatarHash != null) {
+                    syncAvatarIfNeeded(
+                        peerId = payload.senderId,
+                        remoteAvatarColor = payload.senderAvatarColor,
+                        remoteAvatarHash = payload.senderAvatarHash
+                    )
                 }
             }
 
@@ -705,9 +830,56 @@ class AppContainer(val context: Context) {
             SignalingType.PROFILE_UPDATE -> {
                 Log.d(tag, "Received PROFILE_UPDATE from ${payload.senderId}: '${payload.senderName}'")
                 if (payload.senderName.isNotBlank()) {
-                    applicationScope.launch {
+                    applicationScope.launch(Dispatchers.IO) {
                         contactRepository.updateContactName(payload.senderId, payload.senderName)
                     }
+                }
+            }
+
+            SignalingType.AVATAR_REQUEST -> {
+                Log.d(tag, "Received AVATAR_REQUEST from ${payload.senderId}")
+                applicationScope.launch(Dispatchers.IO) {
+                    sendMyAvatarToPeer(payload.senderId)
+                }
+            }
+
+            SignalingType.AVATAR_DATA -> {
+                val base64 = payload.avatarBase64 ?: return
+                applicationScope.launch(Dispatchers.IO) {
+                    try {
+                        val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+                        val saved = MediaStorageHelper.savePeerAvatarBytes(
+                            context = context,
+                            peerId = payload.senderId,
+                            bytes = bytes,
+                            hashHint = payload.senderAvatarHash
+                        )
+                        if (saved != null) {
+                            val (path, hash) = saved
+                            val existing = contactRepository.getContact(payload.senderId)
+                            val color = payload.senderAvatarColor ?: existing?.avatarColor ?: UserPreferencesManager.DEFAULT_AVATAR_COLOR
+                            contactRepository.updateAvatarInfo(payload.senderId, color, path, hash)
+                        }
+                    } catch (e: Exception) {
+                        Log.w(tag, "Failed decoding AVATAR_DATA from ${payload.senderId}: ${e.message}")
+                    } finally {
+                        inFlightAvatarRequests.remove(payload.senderId)
+                    }
+                }
+            }
+
+            SignalingType.MESSAGE_EDIT -> {
+                val msgId = payload.messageId ?: return
+                val newText = payload.messageContent ?: return
+                applicationScope.launch(Dispatchers.IO) {
+                    chatRepository.editMessage(msgId, newText)
+                }
+            }
+
+            SignalingType.MESSAGE_UNSEND -> {
+                val msgId = payload.messageId ?: return
+                applicationScope.launch(Dispatchers.IO) {
+                    chatRepository.markMessageUnsent(msgId)
                 }
             }
 
@@ -824,6 +996,9 @@ class AppContainer(val context: Context) {
                 if (!lanSocketServer.isRunning) {
                     lanSocketServer.start(52220)
                 }
+                if (!lanMediaServer.isRunning) {
+                    lanMediaServer.start(LanMediaServer.DEFAULT_MEDIA_PORT)
+                }
                 lanDiscoveryManager.startDiscoveryAndRegistration()
             } catch (e: Exception) {
                 Log.w(tag, "LAN listener start error: ${e.message}")
@@ -859,12 +1034,103 @@ class AppContainer(val context: Context) {
             if (!hasOngoingCall || activeCall?.isBluetoothVoice == true) {
                 try {
                     lanSocketServer.stop()
+                    lanMediaServer.stop()
                     lanDiscoveryManager.stop()
                 } catch (e: Exception) {
                     Log.w(tag, "LAN listener stop error: ${e.message}")
                 }
             }
         }
+    }
+
+    private suspend fun syncAvatarIfNeeded(
+        peerId: String,
+        remoteAvatarColor: Long?,
+        remoteAvatarHash: String?
+    ) {
+        if (peerId.isBlank() || peerId == currentUserId) return
+        val existing = contactRepository.getContact(peerId) ?: return
+        if (remoteAvatarColor != null && remoteAvatarColor != existing.avatarColor) {
+            contactRepository.updateAvatarColor(peerId, remoteAvatarColor)
+        }
+        if (remoteAvatarHash == null) return
+
+        if (remoteAvatarHash.isEmpty()) {
+            if (!existing.profileImagePath.isNullOrBlank() || existing.avatarHash.isNotEmpty()) {
+                MediaStorageHelper.deletePeerAvatarFiles(context, peerId)
+                contactRepository.updateAvatarInfo(
+                    id = peerId,
+                    avatarColor = remoteAvatarColor ?: existing.avatarColor,
+                    profileImagePath = null,
+                    avatarHash = ""
+                )
+            }
+            return
+        }
+
+        val currentFileExists = !existing.profileImagePath.isNullOrBlank() && java.io.File(existing.profileImagePath).exists()
+        if (remoteAvatarHash != existing.avatarHash || !currentFileExists) {
+            if (inFlightAvatarRequests.add(peerId)) {
+                fcmSignalingClient.sendAvatarRequest(peerId)
+            }
+        }
+    }
+
+    suspend fun sendMyAvatarToPeer(peerId: String) {
+        val path = userPreferencesManager.getProfileImagePath() ?: return
+        val file = java.io.File(path)
+        if (!file.exists() || !file.isFile) return
+        val hash = userPreferencesManager.getProfileImageHash()
+        val color = userPreferencesManager.getAvatarColor()
+        val mode = userPreferencesManager.getConnectionMode()
+
+        if (mode == ConnectionMode.WIFI) {
+            val contact = contactRepository.getContact(peerId)
+            if (contact != null && contact.isOnlineLan && contact.ipAddress.isNotBlank()) {
+                val header = MediaTransferHeader(
+                    kind = MediaTransferKind.AVATAR,
+                    senderId = currentUserId,
+                    senderName = currentUserName,
+                    fileName = file.name,
+                    mimeType = "image/webp",
+                    fileSize = file.length(),
+                    avatarHash = hash,
+                    avatarColor = color
+                )
+                lanMediaServer.sendFile(contact.ipAddress, LanMediaServer.DEFAULT_MEDIA_PORT, header, file)
+            }
+        } else {
+            if (file.length() <= MediaStorageHelper.MAX_BT_AVATAR_BYTES) {
+                val bytes = file.readBytes()
+                val base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                fcmSignalingClient.sendAvatarData(peerId, hash, base64)
+            }
+        }
+    }
+
+    suspend fun sendMediaToPeer(
+        peerId: String,
+        messageId: String,
+        prepared: PreparedMediaFile
+    ): Boolean {
+        val contact = contactRepository.getContact(peerId) ?: return false
+        if (!contact.isOnlineLan || contact.ipAddress.isBlank()) return false
+        val header = MediaTransferHeader(
+            kind = MediaTransferKind.MEDIA,
+            senderId = currentUserId,
+            senderName = currentUserName,
+            messageId = messageId,
+            messageType = prepared.messageType,
+            fileName = prepared.fileName,
+            mimeType = prepared.mimeType,
+            fileSize = prepared.fileSize
+        )
+        return lanMediaServer.sendFile(
+            ip = contact.ipAddress,
+            port = LanMediaServer.DEFAULT_MEDIA_PORT,
+            header = header,
+            file = prepared.file
+        )
     }
 
     fun startScreenShare(mediaProjectionPermissionData: Intent) {

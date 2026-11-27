@@ -48,6 +48,21 @@ interface MessageDao {
     @Query("SELECT senderId, COUNT(*) as count FROM messages WHERE receiverId = :myId AND status != 'READ' GROUP BY senderId")
     fun getUnreadCountsBySender(myId: String): Flow<List<SenderUnreadCount>>
 
+    @Query("SELECT * FROM messages WHERE id = :id LIMIT 1")
+    suspend fun getMessageById(id: String): MessageEntity?
+
+    @Query("UPDATE messages SET content = :newContent, isEdited = 1 WHERE id = :messageId")
+    suspend fun editMessageContent(messageId: String, newContent: String)
+
+    @Query("UPDATE messages SET content = '', localFilePath = NULL, fileName = NULL, mimeType = NULL, fileSize = NULL, isDeleted = 1 WHERE id = :messageId")
+    suspend fun markMessageUnsent(messageId: String)
+
+    @Query("DELETE FROM messages WHERE id = :messageId")
+    suspend fun deleteMessageById(messageId: String)
+
+    @Query("SELECT localFilePath FROM messages WHERE ((senderId = :peerId AND receiverId = :myId) OR (senderId = :myId AND receiverId = :peerId)) AND localFilePath IS NOT NULL")
+    suspend fun getMediaPathsForConversation(peerId: String, myId: String): List<String>
+
     @Query("DELETE FROM messages WHERE (senderId = :peerId AND receiverId = :myId) OR (senderId = :myId AND receiverId = :peerId)")
     suspend fun clearConversation(peerId: String, myId: String)
 
@@ -65,7 +80,7 @@ data class SenderUnreadCount(
 
 @Dao
 interface ContactDao {
-    @Query("SELECT * FROM contacts ORDER BY isOnlineLan DESC, name ASC")
+    @Query("SELECT * FROM contacts WHERE id != '' ORDER BY isOnlineLan DESC, name ASC")
     fun getAllContacts(): Flow<List<ContactEntity>>
 
     @Query("SELECT * FROM contacts WHERE id = :id LIMIT 1")
@@ -91,6 +106,12 @@ interface ContactDao {
 
     @Query("UPDATE contacts SET name = :newName WHERE id = :id")
     suspend fun updateContactName(id: String, newName: String)
+
+    @Query("UPDATE contacts SET avatarColor = :avatarColor, profileImagePath = :profileImagePath, avatarHash = :avatarHash WHERE id = :id")
+    suspend fun updateAvatarInfo(id: String, avatarColor: Long, profileImagePath: String?, avatarHash: String)
+
+    @Query("UPDATE contacts SET avatarColor = :avatarColor WHERE id = :id")
+    suspend fun updateAvatarColor(id: String, avatarColor: Long)
 
     @Query("UPDATE contacts SET bluetoothAddress = :btAddress WHERE id = :id")
     suspend fun updateBluetoothAddress(id: String, btAddress: String)

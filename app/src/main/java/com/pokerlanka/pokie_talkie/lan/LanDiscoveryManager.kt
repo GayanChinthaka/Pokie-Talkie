@@ -40,6 +40,8 @@ class LanDiscoveryManager(
     private var myUserId: String = ""
     private var myUserName: String = ""
     private var myFcmToken: String = ""
+    private var myAvatarColor: Long = 0xFF00A884L
+    private var myAvatarHash: String = ""
     private var localPort: Int = 52220
 
     private val knownServices = ConcurrentHashMap<String, NsdServiceInfo>()
@@ -63,11 +65,20 @@ class LanDiscoveryManager(
         private const val MULTICAST_BURST_MS = 25_000L
     }
 
-    fun initialize(userId: String, userName: String, port: Int, fcmToken: String = "") {
+    fun initialize(
+        userId: String,
+        userName: String,
+        port: Int,
+        fcmToken: String = "",
+        avatarColor: Long = 0xFF00A884L,
+        avatarHash: String = ""
+    ) {
         this.myUserId = userId
         this.myUserName = userName
         this.localPort = port
         this.myFcmToken = fcmToken
+        this.myAvatarColor = avatarColor
+        this.myAvatarHash = avatarHash
         startResolveWorker()
     }
 
@@ -113,8 +124,10 @@ class LanDiscoveryManager(
         _discoveredPeers.value = emptyMap()
     }
 
-    fun updateProfileName(newName: String) {
+    fun updateProfile(newName: String, avatarColor: Long, avatarHash: String) {
         this.myUserName = newName
+        this.myAvatarColor = avatarColor
+        this.myAvatarHash = avatarHash
         scope.launch(Dispatchers.IO) {
             val def = CompletableDeferred<Unit>()
             unregisterDeferred = def
@@ -211,6 +224,10 @@ class LanDiscoveryManager(
 
     private fun registerService() {
         if (registrationListener != null) return
+        if (myUserId.isBlank()) {
+            Log.w(tag, "Skipping NSD service registration: myUserId not initialized yet")
+            return
+        }
 
         val btManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
         val btAdapter = btManager?.adapter
@@ -222,6 +239,8 @@ class LanDiscoveryManager(
             port = localPort
             setAttribute("userId", myUserId)
             setAttribute("userName", myUserName)
+            setAttribute("avatarColor", myAvatarColor.toString())
+            setAttribute("avatarHash", myAvatarHash)
             setAttribute("version", "1.0")
             if (btName.isNotBlank()) {
                 setAttribute("btName", btName)
@@ -394,14 +413,24 @@ class LanDiscoveryManager(
         val port = service.port
         val attributes = service.attributes ?: emptyMap()
         fun getAttr(key: String): String? {
-            return attributes[key]?.let { String(it) } ?: attributes[key.lowercase()]?.let { String(it) }
+            return (attributes[key] ?: attributes[key.lowercase()])
+                ?.let { String(it).trim() }
+                ?.takeIf { it.isNotBlank() }
         }
 
-        val peerUserId = getAttr("userId") ?: service.serviceName.removePrefix("Pokie_")
-        val peerUserName = getAttr("userName") ?: service.serviceName
+        val rawServiceId = service.serviceName.removePrefix("Pokie_").trim()
+        val peerUserId = getAttr("userId") ?: rawServiceId
+        if (peerUserId.isBlank()) {
+            Log.w(tag, "Ignoring NSD service with blank userId: ${service.serviceName}")
+            return
+        }
+        val rawUserName = getAttr("userName")
+        val peerUserName = rawUserName ?: service.serviceName
         val peerFcmToken = getAttr("fcmToken") ?: ""
         val peerBtAddress = getAttr("btAddress") ?: ""
         val peerBtName = getAttr("btName") ?: ""
+        val peerAvatarColor = getAttr("avatarColor")?.toLongOrNull() ?: 0xFF00A884L
+        val peerAvatarHash = getAttr("avatarHash") ?: ""
 
         if (peerUserId == myUserId) return
 
@@ -430,12 +459,15 @@ class LanDiscoveryManager(
 
             val updatedPeer = Contact(
                 id = peerUserId,
-                name = peerUserName.ifBlank { existing?.name ?: service.serviceName },
+                name = rawUserName ?: existing?.name ?: service.serviceName,
                 fcmToken = peerFcmToken.ifBlank { existing?.fcmToken ?: "" },
                 ipAddress = ipAddress,
                 port = port,
                 bluetoothAddress = resolvedBt,
                 isOnlineLan = true,
+                avatarColor = peerAvatarColor,
+                profileImagePath = existing?.profileImagePath,
+                avatarHash = existing?.avatarHash ?: "",
                 lastSeenTimestamp = System.currentTimeMillis()
             )
 
@@ -449,20 +481,24 @@ class LanDiscoveryManager(
             if (resolvedBt.isNotBlank()) {
                 contactRepository.updateBluetoothAddress(peerUserId, resolvedBt)
             }
+            if (peerAvatarColor != (existing?.avatarColor ?: 0xFF00A884L)) {
+                contactRepository.updateAvatarColor(peerUserId, peerAvatarColor)
+            }
 
             val currentMap = _discoveredPeers.value.toMutableMap()
             currentMap[peerUserId] = updatedPeer
             _discoveredPeers.value = currentMap
 
-            onPeerDiscovered?.invoke(updatedPeer)
+            onPeerDiscovered?.invoke(updatedPeer.copy(avatarHash = peerAvatarHash))
         }
     }
 
     private fun handleServiceLost(service: NsdServiceInfo) {
         val peerUserId = serviceNameToUserId.remove(service.serviceName)
-            ?: service.serviceName.removePrefix("Pokie_")
+            ?: service.serviceName.removePrefix("Pokie_").trim()
         userIdToServiceName.remove(peerUserId)
         knownServices.remove(service.serviceName)
+        if (peerUserId.isBlank()) return
 
         scope.launch(Dispatchers.IO) {
             val currentMap = _discoveredPeers.value.toMutableMap()

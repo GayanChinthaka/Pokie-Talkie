@@ -20,8 +20,10 @@ enum class CallState {
 
 enum class MessageType {
     TEXT,
-    EMOJI,
     STICKER,
+    IMAGE,
+    GIF,
+    FILE,
     SYSTEM
 }
 
@@ -51,6 +53,14 @@ enum class SignalingType {
     READ_RECEIPT,
     @SerializedName("profile_update")
     PROFILE_UPDATE,
+    @SerializedName("avatar_request")
+    AVATAR_REQUEST,
+    @SerializedName("avatar_data")
+    AVATAR_DATA,
+    @SerializedName("message_edit")
+    MESSAGE_EDIT,
+    @SerializedName("message_unsend")
+    MESSAGE_UNSEND,
     @SerializedName("switch_to_video_request")
     SWITCH_TO_VIDEO_REQUEST,
     @SerializedName("switch_to_video_accept")
@@ -78,6 +88,8 @@ data class Contact(
     val bluetoothAddress: String = "",
     val isOnlineLan: Boolean = false,
     val avatarColor: Long = 0xFF00A884,
+    val profileImagePath: String? = null,
+    val avatarHash: String = "",
     val lastSeenTimestamp: Long = System.currentTimeMillis()
 )
 
@@ -90,7 +102,13 @@ data class Message(
     val status: MessageStatus,
     val timestamp: Long = System.currentTimeMillis(),
     val isFromMe: Boolean = false,
-    val extraData: String? = null
+    val extraData: String? = null,
+    val localFilePath: String? = null,
+    val mimeType: String? = null,
+    val fileName: String? = null,
+    val fileSize: Long? = null,
+    val isEdited: Boolean = false,
+    val isDeleted: Boolean = false
 )
 
 data class IceCandidateModel(
@@ -139,6 +157,18 @@ data class SignalingPayload(
     val senderIp: String? = null,
     @SerializedName("senderPort")
     val senderPort: Int? = null,
+    @SerializedName("senderAvatarColor")
+    val senderAvatarColor: Long? = null,
+    @SerializedName("senderAvatarHash")
+    val senderAvatarHash: String? = null,
+    @SerializedName("avatarBase64")
+    val avatarBase64: String? = null,
+    @SerializedName("fileName")
+    val fileName: String? = null,
+    @SerializedName("mimeType")
+    val mimeType: String? = null,
+    @SerializedName("fileSize")
+    val fileSize: Long? = null,
     @SerializedName("timestamp")
     val timestamp: Long = System.currentTimeMillis()
 ) {
@@ -166,11 +196,4 @@ data class CallSession(
     val durationSeconds: Long = 0L,
     val isBluetoothVoice: Boolean = false,
     val startTimestamp: Long = System.currentTimeMillis()
-)
-
-data class Sticker(
-    val id: String,
-    val emojiRepresentation: String,
-    val title: String,
-    val packName: String
 )

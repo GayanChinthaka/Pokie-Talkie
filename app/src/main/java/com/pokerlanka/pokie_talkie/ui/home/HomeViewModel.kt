@@ -141,8 +141,15 @@ class HomeViewModel(
         }
     }
 
+    fun clearChatHistory(contactId: String) {
+        viewModelScope.launch {
+            chatRepository.clearChat(contactId, userPrefs.userId)
+        }
+    }
+
     fun deleteContact(contactId: String) {
         viewModelScope.launch {
+            chatRepository.clearChat(contactId, userPrefs.userId)
             contactRepository.deleteContact(contactId)
         }
     }

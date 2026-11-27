@@ -29,6 +29,7 @@ class UserPreferencesManager(context: Context) {
         private const val KEY_THEME_MODE = "key_theme_mode"
         private const val KEY_AVATAR_COLOR = "key_avatar_color"
         private const val KEY_PROFILE_IMAGE_PATH = "key_profile_image_path"
+        private const val KEY_PROFILE_IMAGE_HASH = "key_profile_image_hash"
         private const val KEY_CALL_RINGTONE_ENABLED = "key_call_ringtone_enabled"
         private const val KEY_CALL_VIBRATION_ENABLED = "key_call_vibration_enabled"
         private const val KEY_RINGBACK_TONE_ENABLED = "key_ringback_tone_enabled"
@@ -70,6 +71,9 @@ class UserPreferencesManager(context: Context) {
 
     private val _profileImagePathFlow = MutableStateFlow(prefs.getString(KEY_PROFILE_IMAGE_PATH, null))
     val profileImagePathFlow: StateFlow<String?> = _profileImagePathFlow.asStateFlow()
+
+    private val _profileImageHashFlow = MutableStateFlow(prefs.getString(KEY_PROFILE_IMAGE_HASH, "") ?: "")
+    val profileImageHashFlow: StateFlow<String> = _profileImageHashFlow.asStateFlow()
 
     // Ringing & Sounds
     private val _callRingtoneEnabledFlow = MutableStateFlow(prefs.getBoolean(KEY_CALL_RINGTONE_ENABLED, true))
@@ -152,13 +156,18 @@ class UserPreferencesManager(context: Context) {
         _avatarColorFlow.value = colorHex
     }
 
-    fun setProfileImagePath(path: String?) {
+    fun setProfileImagePath(path: String?, hash: String = "") {
+        val editor = prefs.edit()
         if (path != null) {
-            prefs.edit().putString(KEY_PROFILE_IMAGE_PATH, path).apply()
+            editor.putString(KEY_PROFILE_IMAGE_PATH, path)
+            editor.putString(KEY_PROFILE_IMAGE_HASH, hash)
         } else {
-            prefs.edit().remove(KEY_PROFILE_IMAGE_PATH).apply()
+            editor.remove(KEY_PROFILE_IMAGE_PATH)
+            editor.putString(KEY_PROFILE_IMAGE_HASH, "")
         }
+        editor.apply()
         _profileImagePathFlow.value = path
+        _profileImageHashFlow.value = if (path != null) hash else ""
     }
 
     fun setThemeAccentColor(colorHex: Long) {
@@ -217,6 +226,7 @@ class UserPreferencesManager(context: Context) {
     fun getAvatarColor(): Long = _avatarColorFlow.value
     fun getThemeAccentColor(): Long = _themeAccentColorFlow.value
     fun getProfileImagePath(): String? = _profileImagePathFlow.value
+    fun getProfileImageHash(): String = _profileImageHashFlow.value
     fun isCallRingtoneEnabled(): Boolean = _callRingtoneEnabledFlow.value
     fun isCallVibrationEnabled(): Boolean = _callVibrationEnabledFlow.value
     fun isRingbackToneEnabled(): Boolean = _ringbackToneEnabledFlow.value

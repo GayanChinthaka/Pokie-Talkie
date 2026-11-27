@@ -54,7 +54,7 @@ class PokieTypeConverters {
         MessageEntity::class,
         ContactEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 @TypeConverters(PokieTypeConverters::class)
@@ -78,6 +78,19 @@ abstract class PokieDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE contacts ADD COLUMN profileImagePath TEXT")
+                db.execSQL("ALTER TABLE contacts ADD COLUMN avatarHash TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE messages ADD COLUMN localFilePath TEXT")
+                db.execSQL("ALTER TABLE messages ADD COLUMN mimeType TEXT")
+                db.execSQL("ALTER TABLE messages ADD COLUMN fileName TEXT")
+                db.execSQL("ALTER TABLE messages ADD COLUMN fileSize INTEGER")
+                db.execSQL("ALTER TABLE messages ADD COLUMN isEdited INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE messages ADD COLUMN isDeleted INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getInstance(context: Context): PokieDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -85,7 +98,7 @@ abstract class PokieDatabase : RoomDatabase() {
                     PokieDatabase::class.java,
                     "pokie_talkie.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

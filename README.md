@@ -18,10 +18,12 @@ A private, decentralized family communication Android application built with **K
 - **Zero-Data LAN WebRTC (`io.getstream:stream-webrtc-android`)**: Hardware-accelerated voice and video calling with Opus audio, echo cancellation, noise suppression, camera flip, mid-call audio-to-video upgrade negotiation, and live **Screen Sharing** (`MediaProjection` via `ScreenShareCapturer`).
 - **Smart Audio Routing & Feedback**: Supports Bluetooth headsets, wired/USB headsets, speakerphone, and phone earpiece (`WebRtcAudioDeviceManager`) with automatic ear-proximity screen lock (`ProximityLock`), looping ringtones, vibration patterns, outgoing ringback tone, and SoundPool connect/disconnect tones (`RingtoneVibrationManager`).
 
-### 3. 💬 Local-First Family Chat
-- **Instant Messaging**: Delivers over direct LAN TCP or Bluetooth RFCOMM, falling back to FCM v1 when in Wi-Fi mode.
+### 3. 💬 Local-First Family Chat & Streaming LAN Media
+- **Instant Messaging**: Delivers over direct LAN TCP or Bluetooth RFCOMM, falling back to FCM v1 when in Wi-Fi mode, with message **Edit**, **Unsend**, **Copy**, **Retry**, and **Clear Chat** / **Home Delete** support.
+- **GIFs, Stickers, Photos & Documents**: Full system keyboard IME GIF/sticker insertion (`ReceiveContent` + Coil), plus Wi-Fi LAN streaming (`LanMediaServer`, port `52221`) for photos, camera shots, and files up to 100 MB in 32 KB chunks.
+- **Profile Photo & Avatar Sync**: Compresses profile photos to 256×256 WebP and syncs avatar photos & accent colors automatically across peers.
 - **Receipts & Unread Badges**: Tracks `SENDING`, `SENT_LAN`, `SENT_FCM`, `DELIVERED`, `READ`, and `FAILED` states with live unread counts.
-- **On-Device Persistence**: Stores contacts and messages locally in **Room SQLite** (`PokieDatabase`, schema v3).
+- **On-Device Persistence**: Stores contacts and messages locally in **Room SQLite** (`PokieDatabase`, schema v4).
 
 ### 4. 🎨 Material 3 Expressive Settings & Customization
 - **Profile Management**: Custom display name, user ID copy, and local profile photo picker (`SettingsScreen`).
@@ -43,7 +45,7 @@ com.pokerlanka.pokie_talkie/
 │   └── BluetoothVoiceManager.kt                # Full-duplex 16kHz PCM voice streaming over RFCOMM
 ├── data/
 │   ├── local/
-│   │   ├── PokieDatabase.kt                    # Room Database (v3) & TypeConverters
+│   │   ├── PokieDatabase.kt                    # Room Database (v4) & TypeConverters
 │   │   ├── UserPreferencesManager.kt           # SharedPreferences + StateFlows for settings & identity
 │   │   ├── dao/Daos.kt                         # MessageDao, ContactDao
 │   │   └── entity/Entities.kt                  # MessageEntity, ContactEntity
@@ -57,8 +59,9 @@ com.pokerlanka.pokie_talkie/
 │   ├── PokieFirebaseMessagingService.kt        # FCM push receiver & payload decompression
 │   └── SdpCompressor.kt                        # GZIP + Base64 SDP compression for 4KB FCM limit
 ├── lan/
-│   ├── ConnectivityMonitor.kt                  # Wi-Fi, Wi-Fi Direct, & Bluetooth state monitor
+│   ├── ConnectivityMonitor.kt                  # Wi-Fi, internet & Bluetooth state monitor
 │   ├── LanDiscoveryManager.kt                  # NSD / mDNS peer advertisement & resolution
+│   ├── LanMediaServer.kt                       # Streaming 32KB-chunk LAN media & avatar server
 │   └── LanSocketServer.kt                      # TCP socket server/client for LAN signaling & chat
 ├── service/
 │   └── PokieLocalService.kt                    # Foreground service (connectedDevice/call/mic/cam/projection)
@@ -72,7 +75,7 @@ com.pokerlanka.pokie_talkie/
 │   └── TelecomCallManager.kt                   # PhoneAccount registration & call notifications
 ├── ui/
 │   ├── call/                                   # CallScreen, CallViewModel, IncomingCallActivity
-│   ├── chat/                                   # ChatScreen, ChatViewModel, StickerPicker
+│   ├── chat/                                   # ChatScreen, ChatViewModel, RichContentChatInput (IME GIF/Sticker)
 │   ├── components/                             # AvatarView, ChatBubble, Material3SettingsGroup, swipe call UI
 │   ├── dev/                                    # DevConfig, DevPreviewHubScreen, DevMockCallScreen
 │   ├── home/                                   # HomeScreen, HomeViewModel, ConnectionModeSwitch
@@ -80,6 +83,7 @@ com.pokerlanka.pokie_talkie/
 │   ├── settings/                               # Settings, Appearance, Ringing, Updates, About
 │   └── theme/                                  # Color, Theme, Type
 ├── utils/
+│   ├── MediaStorageHelper.kt                   # Avatar WebP compression, media prep & FileProvider opener
 │   └── Updater.kt                              # GitHub Releases API check & version comparison
 └── webrtc/
     ├── ScreenShareCapturer.kt                  # MediaProjection screen capture wrapper

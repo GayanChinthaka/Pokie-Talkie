@@ -31,7 +31,8 @@ class IncomingCallActivity : ComponentActivity() {
                 telecomCallManager = container.telecomCallManager,
                 bluetoothVoiceManager = container.bluetoothVoiceManager,
                 ringtoneVibrationManager = container.ringtoneVibrationManager,
-                callController = container.callController
+                callController = container.callController,
+                contactRepository = container.contactRepository
             )
         )[CallViewModel::class.java]
 
@@ -84,7 +85,8 @@ class IncomingCallActivity : ComponentActivity() {
                     telecomCallManager = container.telecomCallManager,
                     bluetoothVoiceManager = container.bluetoothVoiceManager,
                     ringtoneVibrationManager = container.ringtoneVibrationManager,
-                    callController = container.callController
+                    callController = container.callController,
+                    contactRepository = container.contactRepository
                 )
             )[CallViewModel::class.java]
             viewModel.answerCall()

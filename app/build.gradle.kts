@@ -1,9 +1,26 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.kapt")
     id("com.google.gms.google-services")
 }
+
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.inputStream().use { localProperties.load(it) }
+}
+
+val releaseKeystoreFile = file("keystore/release.keystore")
+val releaseStorePassword = localProperties.getProperty("STORE_PASSWORD") ?: System.getenv("STORE_PASSWORD")
+val releaseKeyAlias = localProperties.getProperty("KEY_ALIAS") ?: System.getenv("KEY_ALIAS")
+val releaseKeyPassword = localProperties.getProperty("KEY_PASSWORD") ?: System.getenv("KEY_PASSWORD")
+val hasReleaseSigningConfig = releaseKeystoreFile.exists() &&
+    !releaseStorePassword.isNullOrBlank() &&
+    !releaseKeyAlias.isNullOrBlank() &&
+    !releaseKeyPassword.isNullOrBlank()
 
 android {
     namespace = "com.pokerlanka.pokie_talkie"
@@ -13,8 +30,8 @@ android {
         applicationId = "com.pokerlanka.pokie_talkie"
         minSdk = 26
         targetSdk = 34
-        versionCode = 400
-        versionName = "4.0.0"
+        versionCode = 410
+        versionName = "4.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -32,11 +49,26 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            if (hasReleaseSigningConfig) {
+                storeFile = releaseKeystoreFile
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
             isShrinkResources = false
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseSigningConfig) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android.txt"),
                 "proguard-rules.pro"
@@ -118,6 +150,10 @@ dependencies {
 
     // JSON Parsing
     implementation("com.google.code.gson:gson:2.10.1")
+
+    // Image & Animated GIF / WebP Loading
+    implementation("io.coil-kt:coil-compose:2.6.0")
+    implementation("io.coil-kt:coil-gif:2.6.0")
 
     // Firebase Cloud Messaging
     val firebaseBom = platform("com.google.firebase:firebase-bom:33.3.0")

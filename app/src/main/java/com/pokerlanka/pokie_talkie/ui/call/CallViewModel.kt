@@ -9,7 +9,9 @@ import com.pokerlanka.pokie_talkie.bluetooth.BluetoothVoiceManager
 import com.pokerlanka.pokie_talkie.data.model.CallSession
 import com.pokerlanka.pokie_talkie.data.model.CallState
 import com.pokerlanka.pokie_talkie.data.model.CallType
+import com.pokerlanka.pokie_talkie.data.model.Contact
 import com.pokerlanka.pokie_talkie.data.repository.CallRepository
+import com.pokerlanka.pokie_talkie.data.repository.ContactRepository
 import com.pokerlanka.pokie_talkie.fcm.FcmSignalingClient
 import com.pokerlanka.pokie_talkie.service.PokieLocalService
 import com.pokerlanka.pokie_talkie.telecom.CallController
@@ -25,6 +27,8 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.webrtc.EglBase
@@ -32,6 +36,7 @@ import org.webrtc.VideoTrack
 
 class CallViewModel(
     private val callRepository: CallRepository,
+    private val contactRepository: ContactRepository? = null,
     val webRtcManager: WebRtcManager,
     private val fcmSignalingClient: FcmSignalingClient,
     private val telecomCallManager: TelecomCallManager,
@@ -41,6 +46,17 @@ class CallViewModel(
 ) : ViewModel() {
 
     val currentCall: StateFlow<CallSession?> = callRepository.currentCall
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val peerContact: StateFlow<Contact?> = callRepository.currentCall
+        .flatMapLatest { session ->
+            val id = session?.peerId
+            if (id.isNullOrBlank() || contactRepository == null) {
+                flowOf(null)
+            } else {
+                contactRepository.getContactFlow(id)
+            }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private val _btMuted = MutableStateFlow(false)
@@ -235,18 +251,20 @@ class CallViewModel(
             telecomCallManager: TelecomCallManager,
             bluetoothVoiceManager: BluetoothVoiceManager,
             ringtoneVibrationManager: RingtoneVibrationManager,
-            callController: CallController
+            callController: CallController,
+            contactRepository: ContactRepository? = null
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 return CallViewModel(
-                    callRepository,
-                    webRtcManager,
-                    fcmSignalingClient,
-                    telecomCallManager,
-                    bluetoothVoiceManager,
-                    ringtoneVibrationManager,
-                    callController
+                    callRepository = callRepository,
+                    contactRepository = contactRepository,
+                    webRtcManager = webRtcManager,
+                    fcmSignalingClient = fcmSignalingClient,
+                    telecomCallManager = telecomCallManager,
+                    bluetoothVoiceManager = bluetoothVoiceManager,
+                    ringtoneVibrationManager = ringtoneVibrationManager,
+                    callController = callController
                 ) as T
             }
         }

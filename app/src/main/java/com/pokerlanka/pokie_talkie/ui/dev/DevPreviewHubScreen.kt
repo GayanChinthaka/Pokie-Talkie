@@ -1,9 +1,7 @@
 package com.pokerlanka.pokie_talkie.ui.dev
 
-import android.content.Context
 import android.content.Intent
 import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -28,7 +26,6 @@ import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallReceived
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PhoneInTalk
@@ -76,7 +73,6 @@ import com.pokerlanka.pokie_talkie.data.model.MessageStatus
 import com.pokerlanka.pokie_talkie.data.model.MessageType
 import com.pokerlanka.pokie_talkie.di.AppContainer
 import com.pokerlanka.pokie_talkie.ui.call.IncomingCallActivity
-import com.pokerlanka.pokie_talkie.ui.chat.StickerPicker
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkBg
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkCard
 import com.pokerlanka.pokie_talkie.ui.theme.PokieDarkSurface
@@ -100,7 +96,6 @@ fun DevPreviewHubScreen(
 
     var showEditProfileDialog by remember { mutableStateOf(false) }
     var showAddContactDialog by remember { mutableStateOf(false) }
-    var showStickerDrawer by remember { mutableStateOf(false) }
     var testProfileName by remember { mutableStateOf("Test User (Living Room)") }
 
     Scaffold(
@@ -357,9 +352,9 @@ fun DevPreviewHubScreen(
                 )
             }
 
-            // Section 6: Dialogs & Overlays
+            // Section 6: Dialogs
             item {
-                SectionHeader(title = "6. Dialogs & Sticker Drawer")
+                SectionHeader(title = "6. Dialogs")
             }
 
             item {
@@ -384,45 +379,6 @@ fun DevPreviewHubScreen(
                         modifier = Modifier.weight(1f),
                         onClick = { showAddContactDialog = true }
                     )
-                }
-            }
-
-            item {
-                DevRowCard(
-                    title = if (showStickerDrawer) "Hide Sticker Drawer Preview" else "Preview Sticker & Emoji Drawer",
-                    subtitle = "Explore Family Joy, Fun Reactions, and Walkie Alerts sticker packs",
-                    icon = Icons.Default.EmojiEmotions,
-                    badge = "Drawer",
-                    badgeColor = Color(0xFFF472B6),
-                    onClick = { showStickerDrawer = !showStickerDrawer }
-                )
-            }
-
-            if (showStickerDrawer) {
-                item {
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = PokieDarkSurface,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text(
-                                text = "Tap any sticker to test selection toast:",
-                                color = PokieTextSecondary,
-                                fontSize = 12.sp,
-                                modifier = Modifier.padding(bottom = 8.dp)
-                            )
-                            StickerPicker(
-                                onStickerSelected = { sticker ->
-                                    Toast.makeText(
-                                        context,
-                                        "Selected: ${sticker.emojiRepresentation} ${sticker.title}",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                }
-                            )
-                        }
-                    }
                 }
             }
 

@@ -149,6 +149,7 @@ fun PokieNavGraph(
                     fcmSignalingClient = appContainer.fcmSignalingClient,
                     telecomCallManager = appContainer.telecomCallManager,
                     userPreferencesManager = appContainer.userPreferencesManager,
+                    appContainer = appContainer,
                     appScope = appContainer.applicationScope
                 )
             )
@@ -179,7 +180,8 @@ fun PokieNavGraph(
                     telecomCallManager = appContainer.telecomCallManager,
                     bluetoothVoiceManager = appContainer.bluetoothVoiceManager,
                     ringtoneVibrationManager = appContainer.ringtoneVibrationManager,
-                    callController = appContainer.callController
+                    callController = appContainer.callController,
+                    contactRepository = appContainer.contactRepository
                 )
             )
 

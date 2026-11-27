@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.pokerlanka.pokie_talkie.data.local.AppThemeMode
 import com.pokerlanka.pokie_talkie.di.AppContainer
+import com.pokerlanka.pokie_talkie.utils.MediaStorageHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -41,6 +42,7 @@ class SettingsViewModel(
 
     fun updateAvatarColor(color: Long) {
         appContainer.userPreferencesManager.setAvatarColor(color)
+        appContainer.onMyProfileUpdated(pushAvatarToPeers = false)
     }
 
     fun updateThemeAccentColor(color: Long) {
@@ -86,41 +88,22 @@ class SettingsViewModel(
     fun saveProfileImageFromUri(androidContext: android.content.Context, uri: android.net.Uri) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val inputStream = androidContext.contentResolver.openInputStream(uri) ?: return@launch
-                val filename = "profile_photo_${System.currentTimeMillis()}.jpg"
-                val file = java.io.File(androidContext.filesDir, filename)
-                val outputStream = java.io.FileOutputStream(file)
-                inputStream.use { input ->
-                    outputStream.use { output ->
-                        input.copyTo(output)
-                    }
-                }
-                // Delete old profile image if exists
-                val oldPath = appContainer.userPreferencesManager.getProfileImagePath()
-                if (!oldPath.isNullOrBlank()) {
-                    try {
-                        val oldFile = java.io.File(oldPath)
-                        if (oldFile.exists()) oldFile.delete()
-                    } catch (ignored: Exception) {}
-                }
-                appContainer.userPreferencesManager.setProfileImagePath(file.absolutePath)
+                val saved = MediaStorageHelper.compressAndSaveMyAvatar(androidContext, uri) ?: return@launch
+                val (path, hash) = saved
+                appContainer.userPreferencesManager.setProfileImagePath(path, hash)
+                appContainer.onMyProfileUpdated(pushAvatarToPeers = true)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
     }
 
-    fun removeProfileImage(androidContext: android.content.Context) {
+    fun removeProfileImage() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val oldPath = appContainer.userPreferencesManager.getProfileImagePath()
-                if (!oldPath.isNullOrBlank()) {
-                    val file = java.io.File(oldPath)
-                    if (file.exists()) {
-                        file.delete()
-                    }
-                }
-                appContainer.userPreferencesManager.setProfileImagePath(null)
+                MediaStorageHelper.deleteMyAvatarFiles(appContainer.context)
+                appContainer.userPreferencesManager.setProfileImagePath(null, "")
+                appContainer.onMyProfileUpdated(pushAvatarToPeers = false)
             } catch (e: Exception) {
                 e.printStackTrace()
             }

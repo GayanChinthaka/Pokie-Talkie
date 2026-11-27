@@ -1,6 +1,5 @@
 package com.pokerlanka.pokie_talkie.ui.settings
 
-import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -24,17 +23,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.RingVolume
-import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -312,30 +308,6 @@ fun SettingsScreen(
                                 )
                             },
                             onClick = onNavigateToAbout
-                        ),
-                        Material3SettingsItem(
-                            icon = Icons.Default.Security,
-                            title = { Text("Permissions & Lock Screen") },
-                            description = { Text("Open system settings for MIUI / HyperOS lock screen calls") },
-                            trailingContent = {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            },
-                            onClick = {
-                                try {
-                                    val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                        data = Uri.fromParts("package", context.packageName, null)
-                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                    }
-                                    context.startActivity(intent)
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Unable to open app settings", Toast.LENGTH_SHORT).show()
-                                }
-                            }
                         )
                     )
                 )
@@ -428,7 +400,7 @@ fun SettingsScreen(
                     if (profileImagePath != null) {
                         Button(
                             onClick = {
-                                viewModel.removeProfileImage(context)
+                                viewModel.removeProfileImage()
                                 showPhotoOptionsDialog = false
                                 Toast.makeText(context, "Photo removed", Toast.LENGTH_SHORT).show()
                             },
