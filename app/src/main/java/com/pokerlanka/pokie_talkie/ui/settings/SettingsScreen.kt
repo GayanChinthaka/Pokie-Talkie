@@ -1,13 +1,14 @@
 package com.pokerlanka.pokie_talkie.ui.settings
 
 import android.net.Uri
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -68,6 +69,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -83,7 +85,7 @@ import com.pokerlanka.pokie_talkie.ui.components.AvatarView
 import com.pokerlanka.pokie_talkie.ui.components.Material3SettingsGroup
 import com.pokerlanka.pokie_talkie.ui.components.Material3SettingsItem
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel,
@@ -160,24 +162,57 @@ fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(24.dp))
-                        .combinedClickable(
-                            onClick = {
-                                if (isGodModeEnabled) {
-                                    onNavigateToGodMode()
+                        .pointerInput(isGodModeEnabled) {
+                            val godModeHoldDurationMs = 5_000L
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = true)
+                                val startPos = down.position
+                                val startTime = SystemClock.uptimeMillis()
+                                val touchSlop = viewConfiguration.touchSlop
+                                var cancelled = false
+                                var triggered = false
+
+                                while (!cancelled && !triggered) {
+                                    val elapsed = SystemClock.uptimeMillis() - startTime
+                                    val remaining = godModeHoldDurationMs - elapsed
+                                    if (remaining <= 0L) {
+                                        triggered = true
+                                        break
+                                    }
+                                    val event = withTimeoutOrNull(remaining) {
+                                        awaitPointerEvent()
+                                    }
+                                    if (event == null) {
+                                        triggered = true
+                                        break
+                                    }
+                                    val change = event.changes.firstOrNull { it.id == down.id }
+                                    if (change == null || !change.pressed) {
+                                        if (isGodModeEnabled &&
+                                            change != null &&
+                                            (change.position - startPos).getDistance() <= touchSlop
+                                        ) {
+                                            onNavigateToGodMode()
+                                        }
+                                        cancelled = true
+                                    } else if ((change.position - startPos).getDistance() > touchSlop) {
+                                        cancelled = true
+                                    }
                                 }
-                            },
-                            onLongClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                if (isGodModeEnabled) {
-                                    onNavigateToGodMode()
-                                } else {
-                                    godPasswordInput = ""
-                                    godPasswordError = null
-                                    godPasswordVisible = false
-                                    showGodPasswordDialog = true
+
+                                if (triggered) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    if (isGodModeEnabled) {
+                                        onNavigateToGodMode()
+                                    } else {
+                                        godPasswordInput = ""
+                                        godPasswordError = null
+                                        godPasswordVisible = false
+                                        showGodPasswordDialog = true
+                                    }
                                 }
                             }
-                        ),
+                        },
                     shape = RoundedCornerShape(24.dp),
                     border = if (isGodModeEnabled) {
                         BorderStroke(1.dp, Color(0xFFFFB300).copy(alpha = 0.55f))

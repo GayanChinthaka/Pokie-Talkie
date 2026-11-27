@@ -33,8 +33,8 @@ android {
         applicationId = "com.pokerlanka.pokie_talkie"
         minSdk = 26
         targetSdk = 34
-        versionCode = 430
-        versionName = "4.3.0"
+        versionCode = 431
+        versionName = "4.3.1"
 
         buildConfigField("String", "GOD_MODE_PASSWORD", "\"$godModePassword\"")
 

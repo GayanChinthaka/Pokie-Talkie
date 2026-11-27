@@ -928,11 +928,11 @@ class AppContainer(val context: Context) {
                 if (currentCall != null && currentCall.callId == incomingCallId && currentCall.state == CallState.CONNECTED) {
                     val isScreenShareOffer = payload.isScreenShare == true
                     Log.i(tag, "Received RENEGOTIATION_OFFER from ${payload.senderName} (isScreenShare=$isScreenShareOffer)")
-                    callRepository.updateCallType(CallType.VIDEO)
                     if (isScreenShareOffer) {
                         webRtcManager.prepareRemoteVideoOnly()
                         webRtcManager.setRemoteVideoEnabled(true, isScreenShare = true)
                     } else {
+                        callRepository.updateCallType(CallType.VIDEO)
                         webRtcManager.upgradeToVideo()
                     }
                     webRtcManager.setRemoteDescription(sdp, SessionDescription.Type.OFFER, autoAnswer = false)
@@ -1152,7 +1152,6 @@ class AppContainer(val context: Context) {
             )
             if (started) {
                 if (neededRenegotiation) {
-                    callRepository.updateCallType(CallType.VIDEO)
                     webRtcManager.createRenegotiationOffer { sdp ->
                         fcmSignalingClient.sendRenegotiationOffer(
                             targetId = session.peerId,

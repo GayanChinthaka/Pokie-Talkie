@@ -25,6 +25,7 @@ class PokieConnection(
 ) : Connection() {
 
     private val tag = "PokieConnection"
+    private var lastTelecomRoute: Int? = null
 
     init {
         connectionCapabilities = CAPABILITY_MUTE or CAPABILITY_SUPPORT_HOLD
@@ -43,6 +44,7 @@ class PokieConnection(
             return
         }
         setActive()
+        syncAudioRouteFromApp(webRtcManager.audioDeviceManager.activeRoute.value)
         callRepository.updateCallState(CallState.CONNECTED)
         if (session.isBluetoothVoice) {
             // Microphone foreground type, so AudioRecord keeps working when the app is backgrounded
@@ -107,13 +109,38 @@ class PokieConnection(
                 CallAudioState.ROUTE_EARPIECE -> AudioRoute.EARPIECE
                 else -> null
             }
-            if (mappedRoute != null && mappedRoute != webRtcManager.audioDeviceManager.activeRoute.value) {
-                // Only sync if Telecom explicitly changed route (e.g. car kit / watch / system UI)
-                // and target device exists in available routes
+            val prevRoute = lastTelecomRoute
+            lastTelecomRoute = it.route
+
+            val appRoute = webRtcManager.audioDeviceManager.activeRoute.value
+            if (prevRoute == null) {
+                // Initial Telecom audio callback: keep the app's chosen route instead of letting
+                // Telecom's default earpiece override Video speaker or early user selection.
+                if (mappedRoute != null && mappedRoute != appRoute) {
+                    syncAudioRouteFromApp(appRoute)
+                }
+            } else if (it.route != prevRoute && mappedRoute != null && mappedRoute != appRoute) {
                 if (webRtcManager.audioDeviceManager.availableRoutes.value.any { opt -> opt.route == mappedRoute }) {
-                    webRtcManager.audioDeviceManager.selectAudioRoute(mappedRoute)
+                    webRtcManager.audioDeviceManager.onSystemTelecomRouteChanged(mappedRoute)
                 }
             }
+        }
+    }
+
+    fun syncAudioRouteFromApp(route: AudioRoute) {
+        val telecomRoute = when (route) {
+            AudioRoute.BLUETOOTH -> CallAudioState.ROUTE_BLUETOOTH
+            AudioRoute.SPEAKER -> CallAudioState.ROUTE_SPEAKER
+            AudioRoute.WIRED_HEADSET -> CallAudioState.ROUTE_WIRED_HEADSET
+            AudioRoute.EARPIECE -> CallAudioState.ROUTE_EARPIECE
+        }
+        try {
+            if (callAudioState?.route != telecomRoute) {
+                setAudioRoute(telecomRoute)
+                Log.d(tag, "Synced Telecom audio route to $route ($telecomRoute)")
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "Failed to sync Telecom audio route $route: ${e.message}")
         }
     }
 
@@ -131,6 +158,7 @@ class PokieConnection(
 
     fun markConnected() {
         setActive()
+        syncAudioRouteFromApp(webRtcManager.audioDeviceManager.activeRoute.value)
     }
 
     fun markDisconnected(reason: Int = DisconnectCause.REMOTE) {

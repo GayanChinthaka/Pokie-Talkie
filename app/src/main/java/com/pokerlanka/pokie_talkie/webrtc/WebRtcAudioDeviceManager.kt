@@ -12,6 +12,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.annotation.RequiresApi
+import com.pokerlanka.pokie_talkie.telecom.PokieConnectionService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -105,7 +106,18 @@ class WebRtcAudioDeviceManager(private val context: Context) {
             return
         }
         userSelectedRoute = route
-        applyRoute(route, userInitiated = true)
+        applyRoute(route, userInitiated = true, syncTelecom = true)
+    }
+
+    fun onSystemTelecomRouteChanged(route: AudioRoute) {
+        if (!isCallActive) return
+        userSelectedRoute = route
+        applyRoute(route, userInitiated = false, syncTelecom = false)
+    }
+
+    fun reapplyCurrentRoute() {
+        if (!isCallActive) return
+        applyRoute(_activeRoute.value, userInitiated = false, syncTelecom = true)
     }
 
     fun setSpeakerphoneOn(on: Boolean) {
@@ -342,8 +354,11 @@ class WebRtcAudioDeviceManager(private val context: Context) {
     }
 
     @SuppressLint("MissingPermission")
-    private fun applyRoute(route: AudioRoute, userInitiated: Boolean) {
+    private fun applyRoute(route: AudioRoute, userInitiated: Boolean, syncTelecom: Boolean = true) {
         try {
+            if (audioManager.mode != AudioManager.MODE_IN_COMMUNICATION) {
+                audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val devices = audioManager.availableCommunicationDevices
                 val targetDevice = when (route) {
@@ -359,6 +374,9 @@ class WebRtcAudioDeviceManager(private val context: Context) {
                     if (result) {
                         _activeRoute.value = route
                         _isSpeakerOn.value = (route == AudioRoute.SPEAKER)
+                        if (syncTelecom) {
+                            PokieConnectionService.activeConnection?.syncAudioRouteFromApp(route)
+                        }
                         return
                     }
                 }
@@ -374,19 +392,26 @@ class WebRtcAudioDeviceManager(private val context: Context) {
                     audioManager.isBluetoothScoOn = true
                 }
                 AudioRoute.SPEAKER -> {
-                    audioManager.stopBluetoothSco()
-                    audioManager.isBluetoothScoOn = false
+                    if (audioManager.isBluetoothScoOn) {
+                        audioManager.stopBluetoothSco()
+                        audioManager.isBluetoothScoOn = false
+                    }
                     audioManager.isSpeakerphoneOn = true
                 }
                 AudioRoute.WIRED_HEADSET, AudioRoute.EARPIECE -> {
-                    audioManager.stopBluetoothSco()
-                    audioManager.isBluetoothScoOn = false
+                    if (audioManager.isBluetoothScoOn) {
+                        audioManager.stopBluetoothSco()
+                        audioManager.isBluetoothScoOn = false
+                    }
                     audioManager.isSpeakerphoneOn = false
                 }
             }
             _activeRoute.value = route
             _isSpeakerOn.value = (route == AudioRoute.SPEAKER)
-            Log.d(tag, "Legacy audio route applied: $route (user=$userInitiated)")
+            if (syncTelecom) {
+                PokieConnectionService.activeConnection?.syncAudioRouteFromApp(route)
+            }
+            Log.d(tag, "Legacy audio route applied: $route (user=$userInitiated, isSpeakerphoneOn=${audioManager.isSpeakerphoneOn}, mode=${audioManager.mode})")
         } catch (e: Exception) {
             Log.e(tag, "Error applying audio route $route: ${e.message}")
         }

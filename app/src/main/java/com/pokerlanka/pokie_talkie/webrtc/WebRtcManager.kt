@@ -142,10 +142,11 @@ class WebRtcManager(
             localAudioTrack = factory.createAudioTrack("ARDAMSa0", localAudioSource).apply {
                 setEnabled(true)
             }
+            _isVideoEnabled.value = (callType == CallType.VIDEO)
         }
 
         if (callType == CallType.VIDEO && localVideoTrack == null) {
-            createLocalCameraTrack(factory)
+            createLocalCameraTrack(factory, updateVideoState = true)
         }
 
         audioDeviceManager.startCallAudio(enableSpeaker = (callType == CallType.VIDEO))

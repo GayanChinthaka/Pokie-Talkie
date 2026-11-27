@@ -126,6 +126,7 @@ class CallController(
         ringTimeoutJob?.cancel()
         ringTimeoutJob = null
         ringtoneVibrationManager.stopAll()
+        webRtcManager.audioDeviceManager.reapplyCurrentRoute()
         val currentCallId = callRepository.currentCall.value?.callId
         if (!currentCallId.isNullOrBlank() && lastConnectedToneCallId != currentCallId) {
             lastConnectedToneCallId = currentCallId
