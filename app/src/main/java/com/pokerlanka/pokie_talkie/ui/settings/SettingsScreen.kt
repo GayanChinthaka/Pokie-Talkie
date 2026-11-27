@@ -4,7 +4,10 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +23,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -28,10 +33,13 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.RingVolume
 import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -59,17 +67,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pokerlanka.pokie_talkie.ui.components.AvatarView
 import com.pokerlanka.pokie_talkie.ui.components.Material3SettingsGroup
 import com.pokerlanka.pokie_talkie.ui.components.Material3SettingsItem
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel,
@@ -78,17 +92,24 @@ fun SettingsScreen(
     onNavigateToRinging: () -> Unit,
     onNavigateToUpdater: () -> Unit,
     onNavigateToAbout: () -> Unit,
+    onNavigateToGodMode: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val userName by viewModel.userName.collectAsState()
     val avatarColor by viewModel.avatarColor.collectAsState()
     val profileImagePath by viewModel.profileImagePath.collectAsState()
+    val isGodModeEnabled by viewModel.isGodModeEnabled.collectAsState()
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
+    val haptic = LocalHapticFeedback.current
 
     var showEditNameDialog by remember { mutableStateOf(false) }
     var showPhotoOptionsDialog by remember { mutableStateOf(false) }
     var editNameInput by remember(userName) { mutableStateOf(userName) }
+    var showGodPasswordDialog by remember { mutableStateOf(false) }
+    var godPasswordInput by remember { mutableStateOf("") }
+    var godPasswordError by remember { mutableStateOf<String?>(null) }
+    var godPasswordVisible by remember { mutableStateOf(false) }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -136,8 +157,33 @@ fun SettingsScreen(
             // Section 1: Account Profile Header Card
             item {
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(24.dp))
+                        .combinedClickable(
+                            onClick = {
+                                if (isGodModeEnabled) {
+                                    onNavigateToGodMode()
+                                }
+                            },
+                            onLongClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                if (isGodModeEnabled) {
+                                    onNavigateToGodMode()
+                                } else {
+                                    godPasswordInput = ""
+                                    godPasswordError = null
+                                    godPasswordVisible = false
+                                    showGodPasswordDialog = true
+                                }
+                            }
+                        ),
                     shape = RoundedCornerShape(24.dp),
+                    border = if (isGodModeEnabled) {
+                        BorderStroke(1.dp, Color(0xFFFFB300).copy(alpha = 0.55f))
+                    } else {
+                        null
+                    },
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                     ),
@@ -156,7 +202,8 @@ fun SettingsScreen(
                                 backgroundColor = Color(avatarColor),
                                 imagePath = profileImagePath,
                                 size = 92.dp,
-                                isOnlineLan = false
+                                isOnlineLan = false,
+                                isGodMode = isGodModeEnabled
                             )
                             Surface(
                                 shape = CircleShape,
@@ -418,6 +465,124 @@ fun SettingsScreen(
             confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { showPhotoOptionsDialog = false }) {
+                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        )
+    }
+
+    // God Mode Password Prompt Dialog
+    if (showGodPasswordDialog) {
+        fun submitPassword() {
+            if (viewModel.unlockGodMode(godPasswordInput)) {
+                showGodPasswordDialog = false
+                godPasswordInput = ""
+                godPasswordError = null
+                Toast.makeText(context, "You're a God", Toast.LENGTH_SHORT).show()
+                onNavigateToGodMode()
+            } else {
+                godPasswordError = "Incorrect password"
+            }
+        }
+
+        AlertDialog(
+            onDismissRequest = {
+                showGodPasswordDialog = false
+                godPasswordInput = ""
+                godPasswordError = null
+            },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Lock,
+                    contentDescription = null,
+                    tint = Color(0xFFFFB300)
+                )
+            },
+            title = {
+                Text(
+                    text = "Enter Password",
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "Enter the secret password to unlock God Mode.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = godPasswordInput,
+                        onValueChange = {
+                            godPasswordInput = it
+                            if (godPasswordError != null) godPasswordError = null
+                        },
+                        label = { Text("Password") },
+                        singleLine = true,
+                        isError = godPasswordError != null,
+                        visualTransformation = if (godPasswordVisible) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        trailingIcon = {
+                            IconButton(onClick = { godPasswordVisible = !godPasswordVisible }) {
+                                Icon(
+                                    imageVector = if (godPasswordVisible) {
+                                        Icons.Default.VisibilityOff
+                                    } else {
+                                        Icons.Default.Visibility
+                                    },
+                                    contentDescription = if (godPasswordVisible) "Hide password" else "Show password"
+                                )
+                            }
+                        },
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = { submitPassword() }
+                        ),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = TextFieldDefaults.colors(
+                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (godPasswordError != null) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = godPasswordError!!,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { submitPassword() },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFFFA000),
+                        contentColor = Color(0xFF1A1200)
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Unlock", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showGodPasswordDialog = false
+                        godPasswordInput = ""
+                        godPasswordError = null
+                    }
+                ) {
                     Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }

@@ -27,6 +27,7 @@ import com.pokerlanka.pokie_talkie.ui.settings.AppearanceSettingsScreen
 import com.pokerlanka.pokie_talkie.ui.settings.RingingSettingsScreen
 import com.pokerlanka.pokie_talkie.ui.settings.UpdateScreen
 import com.pokerlanka.pokie_talkie.ui.settings.AboutScreen
+import com.pokerlanka.pokie_talkie.ui.settings.GodModeScreen
 
 import android.net.Uri
 import androidx.lifecycle.Lifecycle
@@ -38,6 +39,7 @@ sealed class Screen(val route: String) {
     object RingingSettings : Screen("settings/ringing")
     object UpdatesSettings : Screen("settings/updates")
     object AboutSettings : Screen("settings/about")
+    object GodMode : Screen("settings/god_mode")
     object Chat : Screen("chat/{peerId}") {
         fun createRoute(peerId: String) = "chat/${Uri.encode(peerId)}"
     }
@@ -95,7 +97,8 @@ fun PokieNavGraph(
                 onNavigateToAppearance = { navController.navigate(Screen.AppearanceSettings.route) },
                 onNavigateToRinging = { navController.navigate(Screen.RingingSettings.route) },
                 onNavigateToUpdater = { navController.navigate(Screen.UpdatesSettings.route) },
-                onNavigateToAbout = { navController.navigate(Screen.AboutSettings.route) }
+                onNavigateToAbout = { navController.navigate(Screen.AboutSettings.route) },
+                onNavigateToGodMode = { navController.navigate(Screen.GodMode.route) }
             )
         }
 
@@ -131,6 +134,16 @@ fun PokieNavGraph(
 
         composable(Screen.AboutSettings.route) {
             AboutScreen(
+                onBack = { navController.safePopBackStack() }
+            )
+        }
+
+        composable(Screen.GodMode.route) {
+            val settingsViewModel: SettingsViewModel = viewModel(
+                factory = SettingsViewModel.provideFactory(appContainer)
+            )
+            GodModeScreen(
+                viewModel = settingsViewModel,
                 onBack = { navController.safePopBackStack() }
             )
         }

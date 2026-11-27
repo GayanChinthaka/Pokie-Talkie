@@ -17,6 +17,9 @@ val releaseKeystoreFile = file("keystore/release.keystore")
 val releaseStorePassword = localProperties.getProperty("STORE_PASSWORD") ?: System.getenv("STORE_PASSWORD")
 val releaseKeyAlias = localProperties.getProperty("KEY_ALIAS") ?: System.getenv("KEY_ALIAS")
 val releaseKeyPassword = localProperties.getProperty("KEY_PASSWORD") ?: System.getenv("KEY_PASSWORD")
+val godModePassword = (localProperties.getProperty("GOD_MODE_PASSWORD") ?: System.getenv("GOD_MODE_PASSWORD") ?: "")
+    .replace("\\", "\\\\")
+    .replace("\"", "\\\"")
 val hasReleaseSigningConfig = releaseKeystoreFile.exists() &&
     !releaseStorePassword.isNullOrBlank() &&
     !releaseKeyAlias.isNullOrBlank() &&
@@ -30,8 +33,10 @@ android {
         applicationId = "com.pokerlanka.pokie_talkie"
         minSdk = 26
         targetSdk = 34
-        versionCode = 422
-        versionName = "4.2.2"
+        versionCode = 430
+        versionName = "4.3.0"
+
+        buildConfigField("String", "GOD_MODE_PASSWORD", "\"$godModePassword\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

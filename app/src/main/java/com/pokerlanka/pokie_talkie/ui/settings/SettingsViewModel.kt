@@ -3,12 +3,17 @@ package com.pokerlanka.pokie_talkie.ui.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.pokerlanka.pokie_talkie.BuildConfig
 import com.pokerlanka.pokie_talkie.data.local.AppThemeMode
 import com.pokerlanka.pokie_talkie.di.AppContainer
 import com.pokerlanka.pokie_talkie.utils.MediaStorageHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+
+internal fun isGodModePasswordValid(input: String, expected: String): Boolean {
+    return expected.isNotBlank() && input == expected
+}
 
 class SettingsViewModel(
     private val appContainer: AppContainer
@@ -31,6 +36,9 @@ class SettingsViewModel(
     // Updater
     val autoCheckUpdates: StateFlow<Boolean> = appContainer.userPreferencesManager.autoCheckUpdatesFlow
     val lastUpdateCheckTime: StateFlow<Long> = appContainer.userPreferencesManager.lastUpdateCheckTimeFlow
+
+    // God Mode
+    val isGodModeEnabled: StateFlow<Boolean> = appContainer.userPreferencesManager.godModeEnabledFlow
 
     val userId: String get() = appContainer.currentUserId
 
@@ -78,6 +86,18 @@ class SettingsViewModel(
 
     fun setLastUpdateCheckTime(timestamp: Long) {
         appContainer.userPreferencesManager.setLastUpdateCheckTime(timestamp)
+    }
+
+    fun unlockGodMode(password: String): Boolean {
+        if (isGodModePasswordValid(password, BuildConfig.GOD_MODE_PASSWORD)) {
+            appContainer.userPreferencesManager.setGodModeEnabled(true)
+            return true
+        }
+        return false
+    }
+
+    fun setGodModeEnabled(enabled: Boolean) {
+        appContainer.userPreferencesManager.setGodModeEnabled(enabled)
     }
 
     fun saveProfileImageFromUri(androidContext: android.content.Context, uri: android.net.Uri) {

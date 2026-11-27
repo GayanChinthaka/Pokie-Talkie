@@ -40,6 +40,7 @@ class UserPreferencesManager(context: Context) {
         private const val KEY_LAST_UPDATE_CHECK_TIME = "key_last_update_check_time"
         private const val KEY_THEME_ACCENT_COLOR = "key_theme_accent_color"
         private const val KEY_CONNECTION_MODE = "key_connection_mode"
+        private const val KEY_GOD_MODE_ENABLED = "key_god_mode_enabled"
         const val DEFAULT_AVATAR_COLOR = 0xFF00A884
         const val DEFAULT_ACCENT_COLOR = 0xFF00A884
     }
@@ -103,6 +104,9 @@ class UserPreferencesManager(context: Context) {
 
     private val _connectionModeFlow = MutableStateFlow(getConnectionModeInternal())
     val connectionModeFlow: StateFlow<ConnectionMode> = _connectionModeFlow.asStateFlow()
+
+    private val _godModeEnabledFlow = MutableStateFlow(prefs.getBoolean(KEY_GOD_MODE_ENABLED, false))
+    val godModeEnabledFlow: StateFlow<Boolean> = _godModeEnabledFlow.asStateFlow()
 
     private fun getConnectionModeInternal(): ConnectionMode {
         val saved = prefs.getString(KEY_CONNECTION_MODE, ConnectionMode.WIFI.name)
@@ -220,6 +224,11 @@ class UserPreferencesManager(context: Context) {
         _connectionModeFlow.value = mode
     }
 
+    fun setGodModeEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_GOD_MODE_ENABLED, enabled).apply()
+        _godModeEnabledFlow.value = enabled
+    }
+
     fun getUserName(): String = _userNameFlow.value
     fun getFcmToken(): String = _fcmTokenFlow.value
     fun getThemeMode(): AppThemeMode = _themeModeFlow.value
@@ -236,5 +245,6 @@ class UserPreferencesManager(context: Context) {
     fun isAutoCheckUpdates(): Boolean = _autoCheckUpdatesFlow.value
     fun getLastUpdateCheckTime(): Long = _lastUpdateCheckTimeFlow.value
     fun getConnectionMode(): ConnectionMode = _connectionModeFlow.value
+    fun isGodModeEnabled(): Boolean = _godModeEnabledFlow.value
 }
 

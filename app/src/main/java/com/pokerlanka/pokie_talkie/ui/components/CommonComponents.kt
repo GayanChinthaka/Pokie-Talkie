@@ -56,10 +56,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -118,7 +121,8 @@ fun AvatarView(
     size: Dp = 48.dp,
     backgroundColor: Color = MaterialTheme.colorScheme.primary,
     imagePath: String? = null,
-    isOnlineLan: Boolean = false
+    isOnlineLan: Boolean = false,
+    isGodMode: Boolean = false
 ) {
     val initials = remember(name) {
         name.split(" ")
@@ -161,8 +165,67 @@ fun AvatarView(
         }
     }
 
+    val godGlowTransition = if (isGodMode) rememberInfiniteTransition(label = "godAvatarGlow") else null
+    val godGlowPulse = godGlowTransition?.animateFloat(
+        initialValue = 1.0f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1600, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "godGlowPulse"
+    )?.value ?: 1.0f
+    val godGlowAlpha = godGlowTransition?.animateFloat(
+        initialValue = 0.6f,
+        targetValue = 0.95f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1600, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "godGlowAlpha"
+    )?.value ?: 0f
+
     Box(
-        modifier = modifier.size(size),
+        modifier = modifier
+            .size(size)
+            .then(
+                if (isGodMode) {
+                    Modifier.drawBehind {
+                        val baseRadius = this.size.minDimension / 2f
+                        val outerRadius = baseRadius * 1.36f * godGlowPulse
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colorStops = arrayOf(
+                                    0.45f to Color(0xFFFFD54F).copy(alpha = 0.7f * godGlowAlpha),
+                                    0.72f to Color(0xFFFFA000).copy(alpha = 0.38f * godGlowAlpha),
+                                    1.0f to Color.Transparent
+                                ),
+                                center = center,
+                                radius = outerRadius
+                            ),
+                            radius = outerRadius,
+                            center = center
+                        )
+                        val ringStroke = 2.5.dp.toPx()
+                        drawCircle(
+                            brush = Brush.sweepGradient(
+                                colors = listOf(
+                                    Color(0xFFFFF59D),
+                                    Color(0xFFFFB300),
+                                    Color(0xFFFFD54F),
+                                    Color(0xFFFF8F00),
+                                    Color(0xFFFFF59D)
+                                )
+                            ),
+                            radius = baseRadius + ringStroke / 2f,
+                            center = center,
+                            style = Stroke(width = ringStroke)
+                        )
+                    }
+                } else {
+                    Modifier
+                }
+            ),
         contentAlignment = Alignment.Center
     ) {
         Box(
