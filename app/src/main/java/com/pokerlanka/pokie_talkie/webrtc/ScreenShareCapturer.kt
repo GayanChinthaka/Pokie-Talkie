@@ -13,7 +13,7 @@ import org.webrtc.SurfaceTextureHelper
 import org.webrtc.VideoCapturer
 
 /**
- * Wraps WebRTC's [ScreenCapturerAndroid] to capture the device screen at up to 720p / 15 FPS
+ * Wraps WebRTC's [ScreenCapturerAndroid] to capture the device screen at up to 1080p / 20 FPS
  * while preserving the current display aspect ratio and even encoder dimensions.
  */
 class ScreenShareCapturer(
@@ -100,8 +100,8 @@ class ScreenShareCapturer(
     fun asVideoCapturer(): VideoCapturer? = screenCapturer
 
     companion object {
-        private const val MAX_DIMENSION = 1280
-        private const val TARGET_FPS = 15
+        private const val MAX_DIMENSION = 1920
+        private const val TARGET_FPS = 20
 
         internal fun computeScaledDimensions(
             rawWidth: Int,

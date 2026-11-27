@@ -89,6 +89,7 @@ import com.pokerlanka.pokie_talkie.ui.theme.PokieTextPrimary
 import com.pokerlanka.pokie_talkie.ui.theme.PokieTextSecondary
 import com.pokerlanka.pokie_talkie.webrtc.AudioRoute
 import com.pokerlanka.pokie_talkie.webrtc.WebRtcVideoView
+import org.webrtc.RendererCommon
 import java.util.Locale
 
 @Composable
@@ -168,7 +169,12 @@ fun CallScreen(
                 videoTrack = remoteVideoTrack,
                 eglBaseContext = viewModel.eglBaseContext,
                 modifier = Modifier.fillMaxSize(),
-                isMirror = false
+                isMirror = false,
+                scalingType = if (isRemoteScreenSharing) {
+                    RendererCommon.ScalingType.SCALE_ASPECT_FIT
+                } else {
+                    RendererCommon.ScalingType.SCALE_ASPECT_FILL
+                }
             )
         }
 

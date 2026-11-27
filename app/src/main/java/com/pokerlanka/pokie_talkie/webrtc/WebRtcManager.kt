@@ -145,36 +145,116 @@ class WebRtcManager(
         }
 
         if (callType == CallType.VIDEO && localVideoTrack == null) {
-            try {
-                surfaceTextureHelper?.dispose()
-                surfaceTextureHelper = null
-                surfaceTextureHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.eglBaseContext)
-                val capturer = createCameraCapturer()
-                if (capturer != null) {
-                    videoCapturer = capturer
-                    localVideoSource = factory.createVideoSource(capturer.isScreencast)
-                    capturer.initialize(surfaceTextureHelper, context.applicationContext, localVideoSource!!.capturerObserver)
-                    try {
-                        capturer.startCapture(1280, 720, 30)
-                    } catch (e: Exception) {
-                        Log.w(tag, "Failed 720p capture, falling back to 640x480: ${e.message}")
-                        capturer.startCapture(640, 480, 30)
-                    }
-
-                    localVideoTrack = factory.createVideoTrack("ARDAMSv0", localVideoSource).apply {
-                        setEnabled(true)
-                    }
-                    _localVideoTrackFlow.value = localVideoTrack
-                    Log.i(tag, "Local video track created and started successfully")
-                } else {
-                    Log.w(tag, "Camera capturer returned null (check CAMERA permission or camera availability)")
-                }
-            } catch (e: Exception) {
-                Log.e(tag, "Error setting up local video track: ${e.message}", e)
-            }
+            createLocalCameraTrack(factory)
         }
 
         audioDeviceManager.startCallAudio(enableSpeaker = (callType == CallType.VIDEO))
+    }
+
+    private fun createLocalCameraTrack(factory: PeerConnectionFactory, updateVideoState: Boolean = false) {
+        try {
+            surfaceTextureHelper?.dispose()
+            surfaceTextureHelper = null
+            surfaceTextureHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.eglBaseContext)
+            val capturer = createCameraCapturer()
+            if (capturer != null) {
+                videoCapturer = capturer
+                localVideoSource = factory.createVideoSource(capturer.isScreencast)
+                capturer.initialize(surfaceTextureHelper, context.applicationContext, localVideoSource!!.capturerObserver)
+                startCameraCaptureWithFallback(capturer)
+
+                localVideoTrack = factory.createVideoTrack("ARDAMSv0", localVideoSource).apply {
+                    setEnabled(true)
+                }
+                _localVideoTrackFlow.value = localVideoTrack
+                if (updateVideoState) {
+                    _isVideoEnabled.value = true
+                }
+                Log.i(tag, "Local video track created and started successfully")
+            } else {
+                Log.w(tag, "Camera capturer returned null (check CAMERA permission or camera availability)")
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Error setting up local video track: ${e.message}", e)
+        }
+    }
+
+    private fun startCameraCaptureWithFallback(capturer: CameraVideoCapturer) {
+        try {
+            capturer.startCapture(
+                WebRtcVideoQualityHelper.CAMERA_TARGET_WIDTH,
+                WebRtcVideoQualityHelper.CAMERA_TARGET_HEIGHT,
+                WebRtcVideoQualityHelper.CAMERA_TARGET_FPS
+            )
+        } catch (e: Exception) {
+            Log.w(tag, "Failed 1080p capture, falling back to 720p: ${e.message}")
+            try {
+                capturer.startCapture(
+                    WebRtcVideoQualityHelper.CAMERA_HD_FALLBACK_WIDTH,
+                    WebRtcVideoQualityHelper.CAMERA_HD_FALLBACK_HEIGHT,
+                    WebRtcVideoQualityHelper.CAMERA_TARGET_FPS
+                )
+            } catch (e2: Exception) {
+                Log.w(tag, "Failed 720p capture, falling back to 640x480: ${e2.message}")
+                capturer.startCapture(
+                    WebRtcVideoQualityHelper.CAMERA_FALLBACK_WIDTH,
+                    WebRtcVideoQualityHelper.CAMERA_FALLBACK_HEIGHT,
+                    WebRtcVideoQualityHelper.CAMERA_TARGET_FPS
+                )
+            }
+        }
+    }
+
+    private fun applyVideoQualitySettings(maxFramerate: Int = WebRtcVideoQualityHelper.CAMERA_TARGET_FPS) {
+        val pc = peerConnection ?: return
+        WebRtcVideoQualityHelper.applySenderBitrateAndDegradation(
+            peerConnection = pc,
+            videoSender = findVideoSender(pc),
+            maxFramerate = maxFramerate
+        )
+    }
+
+    private fun setLocalSdpWithEnhancement(
+        originalSdp: SessionDescription,
+        label: String,
+        onReady: (SessionDescription) -> Unit
+    ) {
+        val pc = peerConnection ?: return
+        val enhancedDescription = WebRtcVideoQualityHelper.enhanceVideoSdp(originalSdp.description)
+        val candidateSdp = if (enhancedDescription != originalSdp.description) {
+            SessionDescription(originalSdp.type, enhancedDescription)
+        } else {
+            originalSdp
+        }
+
+        pc.setLocalDescription(object : SdpObserver {
+            override fun onCreateSuccess(p0: SessionDescription?) {}
+            override fun onSetSuccess() {
+                Log.d(tag, "Set local description success for $label")
+                applyVideoQualitySettings()
+                onReady(candidateSdp)
+            }
+            override fun onCreateFailure(p0: String?) {}
+            override fun onSetFailure(error: String?) {
+                if (candidateSdp !== originalSdp) {
+                    Log.w(tag, "Enhanced local SDP rejected for $label ($error); retrying original SDP")
+                    pc.setLocalDescription(object : SdpObserver {
+                        override fun onCreateSuccess(p0: SessionDescription?) {}
+                        override fun onSetSuccess() {
+                            Log.d(tag, "Set local description success (fallback) for $label")
+                            applyVideoQualitySettings()
+                            onReady(originalSdp)
+                        }
+                        override fun onCreateFailure(p0: String?) {}
+                        override fun onSetFailure(fallbackError: String?) {
+                            Log.e(tag, "Set local description failure for $label: $fallbackError")
+                        }
+                    }, originalSdp)
+                } else {
+                    Log.e(tag, "Set local description failure for $label: $error")
+                }
+            }
+        }, candidateSdp)
     }
 
     @Synchronized
@@ -211,6 +291,7 @@ class WebRtcManager(
                         _isCallConnected.value = true
                         iceDisconnectTimerJob?.cancel()
                         iceDisconnectTimerJob = null
+                        applyVideoQualitySettings()
                     }
                     PeerConnection.IceConnectionState.DISCONNECTED -> {
                         iceDisconnectTimerJob?.cancel()
@@ -293,6 +374,7 @@ class WebRtcManager(
         }
         localVideoTrack?.let {
             peerConnection?.addTrack(it, listOf("ARDAMS"))
+            applyVideoQualitySettings()
         }
     }
 
@@ -306,17 +388,9 @@ class WebRtcManager(
             override fun onCreateSuccess(desc: SessionDescription?) {
                 desc?.let { sdp ->
                     Log.d(tag, "Created local offer SDP")
-                    peerConnection?.setLocalDescription(object : SdpObserver {
-                        override fun onCreateSuccess(p0: SessionDescription?) {}
-                        override fun onSetSuccess() {
-                            Log.d(tag, "Set local description success for Offer")
-                            onLocalSdpCreated?.invoke(sdp)
-                        }
-                        override fun onCreateFailure(p0: String?) {}
-                        override fun onSetFailure(error: String?) {
-                            Log.e(tag, "Set local description failure: $error")
-                        }
-                    }, sdp)
+                    setLocalSdpWithEnhancement(sdp, "Offer") { finalSdp ->
+                        onLocalSdpCreated?.invoke(finalSdp)
+                    }
                 }
             }
 
@@ -338,17 +412,9 @@ class WebRtcManager(
             override fun onCreateSuccess(desc: SessionDescription?) {
                 desc?.let { sdp ->
                     Log.d(tag, "Created local answer SDP")
-                    peerConnection?.setLocalDescription(object : SdpObserver {
-                        override fun onCreateSuccess(p0: SessionDescription?) {}
-                        override fun onSetSuccess() {
-                            Log.d(tag, "Set local description success for Answer")
-                            onLocalSdpCreated?.invoke(sdp)
-                        }
-                        override fun onCreateFailure(p0: String?) {}
-                        override fun onSetFailure(error: String?) {
-                            Log.e(tag, "Set local description failure for answer: $error")
-                        }
-                    }, sdp)
+                    setLocalSdpWithEnhancement(sdp, "Answer") { finalSdp ->
+                        onLocalSdpCreated?.invoke(finalSdp)
+                    }
                 }
             }
 
@@ -366,27 +432,46 @@ class WebRtcManager(
         type: SessionDescription.Type,
         autoAnswer: Boolean = (type == SessionDescription.Type.OFFER)
     ) {
-        val sessionDescription = SessionDescription(type, sdpString)
+        val enhancedDescription = WebRtcVideoQualityHelper.enhanceVideoSdp(sdpString)
+        val sessionDescription = SessionDescription(type, enhancedDescription)
+        val onRemoteSetSuccess = {
+            Log.d(tag, "Set remote description success for $type")
+            // Drain any pending ICE candidates now that remote description is set
+            synchronized(pendingIceCandidates) {
+                for (pending in pendingIceCandidates) {
+                    val candidate = IceCandidate(pending.sdpMid, pending.sdpMLineIndex, pending.candidate)
+                    peerConnection?.addIceCandidate(candidate)
+                    Log.d(tag, "Flushed buffered ICE candidate: ${pending.candidate}")
+                }
+                pendingIceCandidates.clear()
+            }
+            applyVideoQualitySettings()
+            if (autoAnswer && type == SessionDescription.Type.OFFER) {
+                createAnswer()
+            }
+        }
         peerConnection?.setRemoteDescription(object : SdpObserver {
             override fun onCreateSuccess(p0: SessionDescription?) {}
             override fun onSetSuccess() {
-                Log.d(tag, "Set remote description success for $type")
-                // Drain any pending ICE candidates now that remote description is set
-                synchronized(pendingIceCandidates) {
-                    for (pending in pendingIceCandidates) {
-                        val candidate = IceCandidate(pending.sdpMid, pending.sdpMLineIndex, pending.candidate)
-                        peerConnection?.addIceCandidate(candidate)
-                        Log.d(tag, "Flushed buffered ICE candidate: ${pending.candidate}")
-                    }
-                    pendingIceCandidates.clear()
-                }
-                if (autoAnswer && type == SessionDescription.Type.OFFER) {
-                    createAnswer()
-                }
+                onRemoteSetSuccess()
             }
             override fun onCreateFailure(p0: String?) {}
             override fun onSetFailure(error: String?) {
-                Log.e(tag, "Set remote description failure: $error")
+                if (enhancedDescription != sdpString) {
+                    Log.w(tag, "Enhanced remote SDP rejected ($error); retrying original remote SDP")
+                    peerConnection?.setRemoteDescription(object : SdpObserver {
+                        override fun onCreateSuccess(p0: SessionDescription?) {}
+                        override fun onSetSuccess() {
+                            onRemoteSetSuccess()
+                        }
+                        override fun onCreateFailure(p0: String?) {}
+                        override fun onSetFailure(fallbackError: String?) {
+                            Log.e(tag, "Set remote description failure: $fallbackError")
+                        }
+                    }, SessionDescription(type, sdpString))
+                } else {
+                    Log.e(tag, "Set remote description failure: $error")
+                }
             }
         }, sessionDescription)
     }
@@ -515,9 +600,11 @@ class WebRtcManager(
 
             if (existingVideoSender != null) {
                 existingVideoSender.setTrack(track, false)
+                applyVideoQualitySettings()
                 Log.i(tag, "Swapped existing video RtpSender track to ScreenShare track")
             } else if (pc != null) {
                 pc.addTrack(track, listOf("ARDAMS"))
+                applyVideoQualitySettings()
                 Log.i(tag, "Added new ScreenShare video track to PeerConnection; requesting renegotiation")
                 onNeedRenegotiation()
             }
@@ -557,6 +644,7 @@ class WebRtcManager(
         // Update UI/state BEFORE disposing screenVideoTrack so Compose never binds a disposed track
         restoreCameraAfterFailedOrStoppedScreenShare()
         cleanupScreenShareResources()
+        applyVideoQualitySettings()
     }
 
     private fun restoreCameraAfterFailedOrStoppedScreenShare() {
@@ -565,13 +653,9 @@ class WebRtcManager(
         if (cameraTrack != null) {
             if (wasCameraEnabledBeforeScreenShare) {
                 try {
-                    videoCapturer?.startCapture(1280, 720, 30)
+                    videoCapturer?.let { startCameraCaptureWithFallback(it) }
                 } catch (e: Exception) {
-                    try {
-                        videoCapturer?.startCapture(640, 480, 30)
-                    } catch (e2: Exception) {
-                        Log.w(tag, "Failed to restart camera after screen share: ${e2.message}")
-                    }
+                    Log.w(tag, "Failed to restart camera after screen share: ${e.message}")
                 }
             }
             cameraTrack.setEnabled(wasCameraEnabledBeforeScreenShare)
@@ -620,32 +704,7 @@ class WebRtcManager(
 
         // 1. Start local camera capturer and video track if not already running
         if (localVideoTrack == null) {
-            try {
-                surfaceTextureHelper?.dispose()
-                surfaceTextureHelper = null
-                surfaceTextureHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.eglBaseContext)
-                val capturer = createCameraCapturer()
-                if (capturer != null) {
-                    videoCapturer = capturer
-                    localVideoSource = factory.createVideoSource(capturer.isScreencast)
-                    capturer.initialize(surfaceTextureHelper, context.applicationContext, localVideoSource!!.capturerObserver)
-                    try {
-                        capturer.startCapture(1280, 720, 30)
-                    } catch (e: Exception) {
-                        Log.w(tag, "Failed 720p capture, falling back to 640x480: ${e.message}")
-                        capturer.startCapture(640, 480, 30)
-                    }
-
-                    localVideoTrack = factory.createVideoTrack("ARDAMSv0", localVideoSource).apply {
-                        setEnabled(true)
-                    }
-                    _localVideoTrackFlow.value = localVideoTrack
-                    _isVideoEnabled.value = true
-                    Log.i(tag, "Local video track created and started for video upgrade")
-                }
-            } catch (e: Exception) {
-                Log.e(tag, "Error setting up local video track on upgrade: ${e.message}", e)
-            }
+            createLocalCameraTrack(factory, updateVideoState = true)
         } else {
             localVideoTrack?.setEnabled(true)
             _isVideoEnabled.value = true
@@ -664,6 +723,7 @@ class WebRtcManager(
                 pc.addTrack(track, listOf("ARDAMS"))
                 Log.i(tag, "Added localVideoTrack to active PeerConnection on upgrade")
             }
+            applyVideoQualitySettings()
         }
 
         // 3. Upgrade audio routing (preserves Bluetooth/Wired headset, switches Earpiece -> Speaker)
@@ -680,17 +740,7 @@ class WebRtcManager(
             override fun onCreateSuccess(desc: SessionDescription?) {
                 desc?.let { sdp ->
                     Log.d(tag, "Created renegotiation offer SDP")
-                    peerConnection?.setLocalDescription(object : SdpObserver {
-                        override fun onCreateSuccess(p0: SessionDescription?) {}
-                        override fun onSetSuccess() {
-                            Log.d(tag, "Set local description success for Renegotiation Offer")
-                            onReady(sdp)
-                        }
-                        override fun onCreateFailure(p0: String?) {}
-                        override fun onSetFailure(error: String?) {
-                            Log.e(tag, "Set local description failure for renegotiation offer: $error")
-                        }
-                    }, sdp)
+                    setLocalSdpWithEnhancement(sdp, "Renegotiation Offer", onReady)
                 }
             }
             override fun onSetSuccess() {}
@@ -711,17 +761,7 @@ class WebRtcManager(
             override fun onCreateSuccess(desc: SessionDescription?) {
                 desc?.let { sdp ->
                     Log.d(tag, "Created renegotiation answer SDP")
-                    peerConnection?.setLocalDescription(object : SdpObserver {
-                        override fun onCreateSuccess(p0: SessionDescription?) {}
-                        override fun onSetSuccess() {
-                            Log.d(tag, "Set local description success for Renegotiation Answer")
-                            onReady(sdp)
-                        }
-                        override fun onCreateFailure(p0: String?) {}
-                        override fun onSetFailure(error: String?) {
-                            Log.e(tag, "Set local description failure for renegotiation answer: $error")
-                        }
-                    }, sdp)
+                    setLocalSdpWithEnhancement(sdp, "Renegotiation Answer", onReady)
                 }
             }
             override fun onSetSuccess() {}
