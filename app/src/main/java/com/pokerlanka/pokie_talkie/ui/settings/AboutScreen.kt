@@ -1,7 +1,5 @@
 package com.pokerlanka.pokie_talkie.ui.settings
 
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,10 +14,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Business
-import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhoneInTalk
@@ -38,8 +34,8 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.pokerlanka.pokie_talkie.BuildConfig
 import com.pokerlanka.pokie_talkie.ui.components.Material3SettingsGroup
@@ -51,7 +47,6 @@ fun AboutScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
     val currentVersion = BuildConfig.VERSION_NAME
 
     Scaffold(
@@ -130,10 +125,10 @@ fun AboutScreen(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
-                        text = "Private, decentralized zero-internet proximity walkie-talkie & messaging mesh.",
+                        text = "Private home & proximity walkie-talkie, HD calling, and messaging over Wi-Fi LAN & Bluetooth.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        textAlign = TextAlign.Center,
                         modifier = Modifier.padding(horizontal = 16.dp)
                     )
                 }
@@ -153,28 +148,6 @@ fun AboutScreen(
                             icon = Icons.Default.Business,
                             title = { Text("Company") },
                             description = { Text("Pokerlanka") }
-                        ),
-                        Material3SettingsItem(
-                            icon = Icons.Default.Code,
-                            title = { Text("Open Source Project") },
-                            description = { Text("github.com/GayanChinthaka/Pokie-Talkie") },
-                            trailingContent = {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                                    contentDescription = "Open GitHub",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            },
-                            onClick = {
-                                try {
-                                    val intent = Intent(
-                                        Intent.ACTION_VIEW,
-                                        Uri.parse("https://github.com/GayanChinthaka/Pokie-Talkie")
-                                    ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-                                    context.startActivity(intent)
-                                } catch (ignored: Exception) {}
-                            }
                         )
                     )
                 )
@@ -188,27 +161,37 @@ fun AboutScreen(
                         Material3SettingsItem(
                             icon = Icons.Default.Wifi,
                             title = { Text("Local Wi-Fi Mesh") },
-                            description = { Text("DNS-SD / mDNS NSD discovery with direct TCP socket delivery") }
+                            description = {
+                                Text("mDNS (NSD) peer discovery with direct TCP sockets for chat & media sharing")
+                            }
                         ),
                         Material3SettingsItem(
                             icon = Icons.Default.Bluetooth,
                             title = { Text("Bluetooth Proximity") },
-                            description = { Text("RFCOMM zero-router proximity channel for offline signaling & data") }
+                            description = {
+                                Text("Offline RFCOMM SPP channel for router-free chat & duplex walkie-talkie audio")
+                            }
                         ),
                         Material3SettingsItem(
                             icon = Icons.Default.Sensors,
-                            title = { Text("Cloud Wake-Up") },
-                            description = { Text("Firebase Cloud Messaging (FCM) v1 push for instant wake-up") }
+                            title = { Text("Cloud Wake-Up & Signaling") },
+                            description = {
+                                Text("Firebase Cloud Messaging (FCM) HTTP v1 over internet for peer wake-up & call signaling")
+                            }
                         ),
                         Material3SettingsItem(
                             icon = Icons.Default.PhoneInTalk,
                             title = { Text("Calling Engine") },
-                            description = { Text("Google WebRTC with Opus Codec + Bluetooth Duplex PCM Voice") }
+                            description = {
+                                Text("WebRTC (1080p H.264/VP8 video, screen share, Opus audio & LAN/STUN ICE) + Bluetooth PCM voice")
+                            }
                         ),
                         Material3SettingsItem(
                             icon = Icons.Default.Lock,
-                            title = { Text("Private Local Vault") },
-                            description = { Text("Room SQLite database · 100% On-Device · Zero Cloud") }
+                            title = { Text("On-Device Storage") },
+                            description = {
+                                Text("Chat history, contacts & media stay locally on-device in Room SQLite")
+                            }
                         )
                     )
                 )

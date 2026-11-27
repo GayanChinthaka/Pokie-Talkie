@@ -238,7 +238,7 @@ fun SettingsScreen(
                         Material3SettingsItem(
                             icon = Icons.Default.Palette,
                             title = { Text("Appearance") },
-                            description = { Text("Theme mode, brand colors & avatar customization") },
+                            description = { Text("Theme mode & brand accent color") },
                             trailingContent = {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.ArrowForward,
@@ -298,7 +298,7 @@ fun SettingsScreen(
                         Material3SettingsItem(
                             icon = Icons.Default.Info,
                             title = { Text("About Pokie-Talkie") },
-                            description = { Text("App version, developer, protocol & open source details") },
+                            description = { Text("App version, developer & architecture details") },
                             trailingContent = {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.ArrowForward,

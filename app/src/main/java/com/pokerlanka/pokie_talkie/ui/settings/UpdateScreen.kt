@@ -19,7 +19,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Info
@@ -34,7 +33,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -57,7 +55,6 @@ import androidx.compose.ui.unit.sp
 import com.pokerlanka.pokie_talkie.BuildConfig
 import com.pokerlanka.pokie_talkie.ui.components.Material3SettingsGroup
 import com.pokerlanka.pokie_talkie.ui.components.Material3SettingsItem
-import com.pokerlanka.pokie_talkie.utils.ReleaseInfo
 import com.pokerlanka.pokie_talkie.utils.Updater
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -363,34 +360,6 @@ fun UpdateScreen(
                 }
             }
 
-            // Release Notes / Changelog Card (If available)
-            if (latestRelease != null && latestRelease!!.body.isNotBlank()) {
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                        )
-                    ) {
-                        Column(modifier = Modifier.padding(20.dp)) {
-                            Text(
-                                text = "WHAT'S NEW IN ${latestRelease!!.tagName.uppercase()}",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = latestRelease!!.body,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
-                }
-            }
-
             // Automatic Updates Toggle
             item {
                 Material3SettingsGroup(
@@ -416,38 +385,22 @@ fun UpdateScreen(
                 )
             }
 
-            // Action Buttons: Check Now & Direct Releases Page
+            // Action Button: Check Now
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(
-                        onClick = { runUpdateCheck() },
-                        enabled = !isChecking,
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (isChecking) "Checking..." else "Check for Updates")
-                    }
-
-                    OutlinedButton(
-                        onClick = { Updater.openReleasesPage(context) },
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Open GitHub Releases Page")
-                    }
+                Button(
+                    onClick = { runUpdateCheck() },
+                    enabled = !isChecking,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(if (isChecking) "Checking..." else "Check for Updates")
                 }
             }
         }

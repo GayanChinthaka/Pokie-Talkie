@@ -40,11 +40,6 @@ class SettingsViewModel(
         }
     }
 
-    fun updateAvatarColor(color: Long) {
-        appContainer.userPreferencesManager.setAvatarColor(color)
-        appContainer.onMyProfileUpdated(pushAvatarToPeers = false)
-    }
-
     fun updateThemeAccentColor(color: Long) {
         appContainer.userPreferencesManager.setThemeAccentColor(color)
     }
