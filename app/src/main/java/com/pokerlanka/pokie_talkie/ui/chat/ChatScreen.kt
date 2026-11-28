@@ -197,7 +197,6 @@ fun ChatScreen(
     val peerStatusText = when {
         isBtMode -> if (!contact?.bluetoothAddress.isNullOrBlank()) "Bluetooth Ready" else "Bluetooth"
         contact?.isOnlineLan == true -> "Online"
-        !contact?.fcmToken.isNullOrBlank() -> "Cloud Ready"
         else -> "Offline"
     }
 
