@@ -205,7 +205,22 @@ fun ChatScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .then(
+                                if (isGodModeEnabled) {
+                                    Modifier.clickable {
+                                        onNavigateToPeerGodMode(contact?.id ?: viewModel.peerId)
+                                    }
+                                } else {
+                                    Modifier
+                                }
+                            )
+                            .padding(vertical = 4.dp)
+                    ) {
                         AvatarView(
                             name = contact?.name ?: "Family Member",
                             backgroundColor = Color(contact?.avatarColor ?: 0xFF00A884),
@@ -214,18 +229,7 @@ fun ChatScreen(
                             size = 38.dp
                         )
                         Spacer(modifier = Modifier.width(10.dp))
-                        Column(
-                            modifier = if (isGodModeEnabled) {
-                                Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable {
-                                        onNavigateToPeerGodMode(contact?.id ?: viewModel.peerId)
-                                    }
-                                    .padding(horizontal = 4.dp, vertical = 2.dp)
-                            } else {
-                                Modifier
-                            }
-                        ) {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = contact?.name ?: "Family Member",
                                 color = MaterialTheme.colorScheme.onSurface,

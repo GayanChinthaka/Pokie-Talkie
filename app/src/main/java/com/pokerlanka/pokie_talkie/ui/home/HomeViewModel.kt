@@ -24,7 +24,6 @@ import java.util.UUID
 data class HomeUiState(
     val contacts: List<Contact> = emptyList(),
     val unreadCounts: Map<String, Int> = emptyMap(),
-    val searchQuery: String = "",
     val myDeviceName: String = "",
     val myUserId: String = "",
     val activeTransport: ActiveTransportMode = ActiveTransportMode.WIFI,
@@ -42,9 +41,6 @@ class HomeViewModel(
     private val telecomCallManager = appContainer.telecomCallManager
     private val userPrefs = appContainer.userPreferencesManager
 
-    private val _searchQuery = MutableStateFlow("")
-    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
-
     private val _showAddContactDialog = MutableStateFlow(false)
     val showAddContactDialog: StateFlow<Boolean> = _showAddContactDialog.asStateFlow()
 
@@ -57,22 +53,15 @@ class HomeViewModel(
     val uiState: StateFlow<HomeUiState> = combine(
         contactRepository.getContacts(),
         chatRepository.getUnreadCounts(userPrefs.userId),
-        _searchQuery,
         userAndTransportFlow,
         _showAddContactDialog
-    ) { contacts, unreadMap, query, userAndTransport, showAddDialog ->
+    ) { contacts, unreadMap, userAndTransport, showAddDialog ->
         val userName = userAndTransport.first
         val transport = userAndTransport.second
         val mode = userAndTransport.third
-        val filtered = if (query.isBlank()) {
-            contacts
-        } else {
-            contacts.filter { it.name.contains(query, ignoreCase = true) || it.ipAddress.contains(query) }
-        }
         HomeUiState(
-            contacts = filtered,
+            contacts = contacts,
             unreadCounts = unreadMap,
-            searchQuery = query,
             myDeviceName = userName,
             myUserId = userPrefs.userId,
             activeTransport = transport,
@@ -120,10 +109,6 @@ class HomeViewModel(
             }
         }
         Toast.makeText(ctx, message, Toast.LENGTH_SHORT).show()
-    }
-
-    fun onSearchQueryChanged(query: String) {
-        _searchQuery.value = query
     }
 
     fun openAddContactDialog() {

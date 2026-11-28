@@ -1,7 +1,6 @@
 package com.pokerlanka.pokie_talkie.ui.chat
 
 import android.widget.Toast
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -31,7 +29,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -47,12 +44,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.pokerlanka.pokie_talkie.data.repository.ContactRepository
 import com.pokerlanka.pokie_talkie.ui.components.AvatarView
-
-private val PeerGodGold = Color(0xFFFFD54F)
-private val PeerGodAmber = Color(0xFFFFA000)
 
 private data class PeerGodTile(
     val title: String,
@@ -99,22 +92,13 @@ fun PeerGodModeScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text(
-                            text = peerName,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = "GOD MODE",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp,
-                            color = PeerGodAmber
-                        )
-                    }
+                    Text(
+                        text = peerName,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -140,62 +124,38 @@ fun PeerGodModeScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Peer Header Card
+            // Centered Peer Profile Header Card
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(24.dp),
-                    border = BorderStroke(1.dp, PeerGodAmber.copy(alpha = 0.45f)),
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                     ),
                     elevation = CardDefaults.cardElevation(0.dp)
                 ) {
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(18.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(vertical = 22.dp, horizontal = 20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         AvatarView(
                             name = peerName,
                             backgroundColor = Color(contact?.avatarColor ?: 0xFF00A884),
                             imagePath = contact?.profileImagePath,
                             isOnlineLan = contact?.isOnlineLan == true,
-                            size = 56.dp
+                            size = 84.dp
                         )
-                        Spacer(modifier = Modifier.width(14.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = peerName,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = when {
-                                    contact?.isOnlineLan == true -> "Online on LAN"
-                                    !contact?.fcmToken.isNullOrBlank() -> "Cloud Ready"
-                                    else -> "Offline"
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Surface(
-                            shape = RoundedCornerShape(50),
-                            color = PeerGodAmber.copy(alpha = 0.16f),
-                            border = BorderStroke(1.dp, PeerGodGold.copy(alpha = 0.45f))
-                        ) {
-                            Text(
-                                text = "GOD",
-                                color = PeerGodGold,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                            )
-                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = peerName,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }
@@ -205,7 +165,7 @@ fun PeerGodModeScreen(
                 Text(
                     text = "ACTIONS",
                     style = MaterialTheme.typography.labelMedium,
-                    color = PeerGodAmber,
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(start = 6.dp)
                 )
             }
@@ -254,7 +214,6 @@ private fun PeerGodTileCard(
             .clip(RoundedCornerShape(24.dp))
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.dp, PeerGodAmber.copy(alpha = 0.25f)),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
         ),
@@ -270,13 +229,13 @@ private fun PeerGodTileCard(
                 modifier = Modifier
                     .size(46.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(PeerGodAmber.copy(alpha = 0.16f)),
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = tile.icon,
                     contentDescription = tile.title,
-                    tint = PeerGodGold,
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(26.dp)
                 )
             }
