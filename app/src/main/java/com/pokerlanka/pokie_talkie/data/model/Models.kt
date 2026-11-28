@@ -76,7 +76,11 @@ enum class SignalingType {
     @SerializedName("ping")
     PING,
     @SerializedName("pong")
-    PONG
+    PONG,
+    @SerializedName("consent_request")
+    CONSENT_REQUEST,
+    @SerializedName("consent_response")
+    CONSENT_RESPONSE
 }
 
 data class Contact(
@@ -169,6 +173,14 @@ data class SignalingPayload(
     val mimeType: String? = null,
     @SerializedName("fileSize")
     val fileSize: Long? = null,
+    @SerializedName("consentRequestId")
+    val consentRequestId: String? = null,
+    @SerializedName("consentKind")
+    val consentKind: String? = null,
+    @SerializedName("consentGranted")
+    val consentGranted: Boolean? = null,
+    @SerializedName("consentRootUri")
+    val consentRootUri: String? = null,
     @SerializedName("timestamp")
     val timestamp: Long = System.currentTimeMillis()
 ) {

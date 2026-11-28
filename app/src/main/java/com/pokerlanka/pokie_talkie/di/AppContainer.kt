@@ -15,6 +15,8 @@ import androidx.core.app.NotificationCompat
 import com.pokerlanka.pokie_talkie.BuildConfig
 import com.pokerlanka.pokie_talkie.MainActivity
 import com.pokerlanka.pokie_talkie.R
+import com.pokerlanka.pokie_talkie.consent.ConsentBus
+import com.pokerlanka.pokie_talkie.consent.ConsentRequest
 import com.pokerlanka.pokie_talkie.data.local.PokieDatabase
 import com.pokerlanka.pokie_talkie.data.model.CallSession
 import com.pokerlanka.pokie_talkie.data.model.CallState
@@ -146,6 +148,7 @@ class AppContainer(val context: Context) {
     // FCM doesn't preserve order, so ICE candidates can arrive before their OFFER: hold them by callId
     private val earlyIceCandidates = java.util.concurrent.ConcurrentHashMap<String, MutableList<IceCandidateModel>>()
     private val inFlightAvatarRequests = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    private val handledConsentRequestIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
     fun onChatOpened(peerId: String) {
         activeChatPeerId = peerId
@@ -959,6 +962,63 @@ class AppContainer(val context: Context) {
             SignalingType.PONG -> {
                 Log.i(tag, "Received PONG from ${payload.senderName} (${payload.senderId}) - Peer handshake confirmed")
             }
+
+            SignalingType.CONSENT_REQUEST -> {
+                val reqId = payload.consentRequestId?.takeIf { it.isNotBlank() } ?: return
+                val kindName = payload.consentKind ?: ConsentRequest.Kind.ALL.name
+                val kind = try {
+                    ConsentRequest.Kind.valueOf(kindName.uppercase())
+                } catch (_: Exception) {
+                    ConsentRequest.Kind.ALL
+                }
+                if (!handledConsentRequestIds.add(reqId)) {
+                    return
+                }
+                if (handledConsentRequestIds.size > 64) {
+                    handledConsentRequestIds.clear()
+                    handledConsentRequestIds.add(reqId)
+                }
+
+                applicationScope.launch(Dispatchers.Main) {
+                    val deferred = ConsentBus.request(reqId)
+                    val peerDisplayName = payload.senderName.ifBlank { "Family Member" }
+                    ConsentBus.events.tryEmit(
+                        ConsentRequest(
+                            requestId = reqId,
+                            kind = kind,
+                            peerId = payload.senderId,
+                            peerName = peerDisplayName
+                        )
+                    )
+                    bringMainActivityToFrontForConsent(peerDisplayName)
+
+                    val granted = withTimeoutOrNull(60_000L) { deferred.await() } ?: false
+                    if (granted) {
+                        userPreferencesManager.setRemotePeerAuthorized(payload.senderId, true)
+                    }
+                    fcmSignalingClient.sendConsentResponse(
+                        targetId = payload.senderId,
+                        requestId = reqId,
+                        kind = kind.name,
+                        granted = granted,
+                        rootUri = if (granted) userPreferencesManager.getSharedFolderUri() else null
+                    )
+                }
+            }
+
+            SignalingType.CONSENT_RESPONSE -> {
+                val granted = payload.consentGranted == true
+                userPreferencesManager.setPeerConsentGranted(payload.senderId, granted)
+                val peerName = payload.senderName.ifBlank { "Peer" }
+                val msg = if (granted) {
+                    "$peerName granted access permissions"
+                } else {
+                    "$peerName denied access permission"
+                }
+                applicationScope.launch(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
             }
         } catch (e: Throwable) {
             Log.e(tag, "Error handling incoming $source payload: ${e.message}", e)
@@ -1186,6 +1246,42 @@ class AppContainer(val context: Context) {
                 isCameraOn = hasActiveCamera,
                 isScreenShare = false
             )
+        }
+    }
+
+    fun requestPeerConsent(peerId: String, kind: ConsentRequest.Kind = ConsentRequest.Kind.ALL): String {
+        val requestId = UUID.randomUUID().toString()
+        fcmSignalingClient.sendConsentRequest(peerId, requestId, kind.name)
+        return requestId
+    }
+
+    private fun bringMainActivityToFrontForConsent(peerName: String) {
+        try {
+            val intent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
+            if (com.pokerlanka.pokie_talkie.PokieApp.isAppInForeground) {
+                context.startActivity(intent)
+                return
+            }
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                53100,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val notification = NotificationCompat.Builder(context, CHANNEL_MESSAGES_ID)
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setContentTitle("Permission Request")
+                .setContentText("$peerName is requesting remote access permissions")
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .build()
+            nm.notify(53100, notification)
+        } catch (e: Exception) {
+            Log.w(tag, "Could not surface consent prompt: ${e.message}")
         }
     }
 

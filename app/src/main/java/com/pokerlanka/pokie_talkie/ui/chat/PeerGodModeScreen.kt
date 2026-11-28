@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -21,7 +22,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ScreenShare
 import androidx.compose.material.icons.filled.CameraFront
 import androidx.compose.material.icons.filled.CameraRear
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -44,7 +50,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.pokerlanka.pokie_talkie.data.repository.ContactRepository
+import com.pokerlanka.pokie_talkie.consent.ConsentRequest
+import com.pokerlanka.pokie_talkie.di.AppContainer
 import com.pokerlanka.pokie_talkie.ui.components.AvatarView
 
 private data class PeerGodTile(
@@ -57,12 +64,14 @@ private data class PeerGodTile(
 @Composable
 fun PeerGodModeScreen(
     peerId: String,
-    contactRepository: ContactRepository,
+    appContainer: AppContainer,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val contact by contactRepository.getContactFlow(peerId).collectAsState(initial = null)
+    val contact by appContainer.contactRepository.getContactFlow(peerId).collectAsState(initial = null)
+    val grantedPeers by appContainer.userPreferencesManager.grantedGodPeersFlow.collectAsState()
+    val hasConsent = grantedPeers.contains(peerId)
     val peerName = contact?.name?.takeIf { it.isNotBlank() } ?: "User"
 
     val tiles = listOf(
@@ -87,6 +96,17 @@ fun PeerGodModeScreen(
             icon = Icons.AutoMirrored.Filled.ScreenShare
         )
     )
+
+    val filesTile = PeerGodTile(
+        title = "Files",
+        subtitle = "Browse user-approved folder",
+        icon = Icons.Default.Folder
+    )
+
+    fun sendUnifiedConsentRequest() {
+        appContainer.requestPeerConsent(peerId, ConsentRequest.Kind.ALL)
+        Toast.makeText(context, "Permission request sent to $peerName", Toast.LENGTH_SHORT).show()
+    }
 
     Scaffold(
         topBar = {
@@ -160,6 +180,69 @@ fun PeerGodModeScreen(
                 }
             }
 
+            // Unified Permission Status Card
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                    ),
+                    elevation = CardDefaults.cardElevation(0.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 18.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = if (hasConsent) Icons.Default.CheckCircle else Icons.Default.Lock,
+                                contentDescription = null,
+                                tint = if (hasConsent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = if (hasConsent) "Permission Granted" else "Permission Required",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = if (hasConsent) {
+                                        "$peerName approved remote access"
+                                    } else {
+                                        "Request approval from $peerName first"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        if (!hasConsent) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = { sendUnifiedConsentRequest() },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary
+                                )
+                            ) {
+                                Text("Request")
+                            }
+                        }
+                    }
+                }
+            }
+
             // Section Title
             item {
                 Text(
@@ -170,7 +253,7 @@ fun PeerGodModeScreen(
                 )
             }
 
-            // 2x2 Grid of Action Tiles
+            // 2x2 Grid of Action Tiles + Files Tile
             item {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -185,17 +268,37 @@ fun PeerGodModeScreen(
                                 PeerGodTileCard(
                                     tile = tile,
                                     onClick = {
-                                        Toast.makeText(
-                                            context,
-                                            "${tile.title} coming soon",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
+                                        if (!hasConsent) {
+                                            sendUnifiedConsentRequest()
+                                        } else {
+                                            Toast.makeText(
+                                                context,
+                                                "${tile.title} coming soon",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
                                     },
                                     modifier = Modifier.weight(1f)
                                 )
                             }
                         }
                     }
+
+                    PeerGodTileCard(
+                        tile = filesTile,
+                        onClick = {
+                            if (!hasConsent) {
+                                sendUnifiedConsentRequest()
+                            } else {
+                                Toast.makeText(
+                                    context,
+                                    "Files browser coming soon",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
         }

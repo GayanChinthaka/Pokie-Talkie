@@ -258,6 +258,36 @@ class FcmSignalingClient(
         dispatchPayload(targetId, payload)
     }
 
+    fun sendConsentRequest(targetId: String, requestId: String, kind: String) {
+        val payload = createPayload(
+            type = SignalingType.CONSENT_REQUEST,
+            targetId = targetId
+        ).copy(
+            consentRequestId = requestId,
+            consentKind = kind
+        )
+        dispatchPayload(targetId, payload)
+    }
+
+    fun sendConsentResponse(
+        targetId: String,
+        requestId: String,
+        kind: String,
+        granted: Boolean,
+        rootUri: String? = null
+    ) {
+        val payload = createPayload(
+            type = SignalingType.CONSENT_RESPONSE,
+            targetId = targetId
+        ).copy(
+            consentRequestId = requestId,
+            consentKind = kind,
+            consentGranted = granted,
+            consentRootUri = rootUri
+        )
+        dispatchPayload(targetId, payload)
+    }
+
     fun sendPong(targetId: String) {
         val payload = createPayload(
             type = SignalingType.PONG,

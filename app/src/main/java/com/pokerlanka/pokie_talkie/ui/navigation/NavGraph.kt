@@ -192,7 +192,7 @@ fun PokieNavGraph(
             val peerId = backStackEntry.arguments?.getString("peerId") ?: ""
             PeerGodModeScreen(
                 peerId = peerId,
-                contactRepository = appContainer.contactRepository,
+                appContainer = appContainer,
                 onBack = { navController.safePopBackStack() }
             )
         }

@@ -41,6 +41,9 @@ class UserPreferencesManager(context: Context) {
         private const val KEY_THEME_ACCENT_COLOR = "key_theme_accent_color"
         private const val KEY_CONNECTION_MODE = "key_connection_mode"
         private const val KEY_GOD_MODE_ENABLED = "key_god_mode_enabled"
+        private const val KEY_GRANTED_GOD_PEERS = "key_granted_god_peers"
+        private const val KEY_AUTHORIZED_REMOTE_PEERS = "key_authorized_remote_peers"
+        private const val KEY_SHARED_FOLDER_URI = "key_shared_folder_uri"
         const val DEFAULT_AVATAR_COLOR = 0xFF00A884
         const val DEFAULT_ACCENT_COLOR = 0xFF00A884
     }
@@ -107,6 +110,19 @@ class UserPreferencesManager(context: Context) {
 
     private val _godModeEnabledFlow = MutableStateFlow(prefs.getBoolean(KEY_GOD_MODE_ENABLED, false))
     val godModeEnabledFlow: StateFlow<Boolean> = _godModeEnabledFlow.asStateFlow()
+
+    private val _grantedGodPeersFlow = MutableStateFlow(
+        prefs.getStringSet(KEY_GRANTED_GOD_PEERS, emptySet())?.toSet() ?: emptySet()
+    )
+    val grantedGodPeersFlow: StateFlow<Set<String>> = _grantedGodPeersFlow.asStateFlow()
+
+    private val _authorizedRemotePeersFlow = MutableStateFlow(
+        prefs.getStringSet(KEY_AUTHORIZED_REMOTE_PEERS, emptySet())?.toSet() ?: emptySet()
+    )
+    val authorizedRemotePeersFlow: StateFlow<Set<String>> = _authorizedRemotePeersFlow.asStateFlow()
+
+    private val _sharedFolderUriFlow = MutableStateFlow(prefs.getString(KEY_SHARED_FOLDER_URI, null))
+    val sharedFolderUriFlow: StateFlow<String?> = _sharedFolderUriFlow.asStateFlow()
 
     private fun getConnectionModeInternal(): ConnectionMode {
         val saved = prefs.getString(KEY_CONNECTION_MODE, ConnectionMode.WIFI.name)
@@ -229,6 +245,33 @@ class UserPreferencesManager(context: Context) {
         _godModeEnabledFlow.value = enabled
     }
 
+    fun setPeerConsentGranted(peerId: String, granted: Boolean) {
+        if (peerId.isBlank()) return
+        val updated = _grantedGodPeersFlow.value.toMutableSet()
+        if (granted) updated.add(peerId) else updated.remove(peerId)
+        prefs.edit().putStringSet(KEY_GRANTED_GOD_PEERS, updated).apply()
+        _grantedGodPeersFlow.value = updated
+    }
+
+    fun setRemotePeerAuthorized(peerId: String, authorized: Boolean) {
+        if (peerId.isBlank()) return
+        val updated = _authorizedRemotePeersFlow.value.toMutableSet()
+        if (authorized) updated.add(peerId) else updated.remove(peerId)
+        prefs.edit().putStringSet(KEY_AUTHORIZED_REMOTE_PEERS, updated).apply()
+        _authorizedRemotePeersFlow.value = updated
+    }
+
+    fun setSharedFolderUri(uri: String?) {
+        val editor = prefs.edit()
+        if (uri.isNullOrBlank()) {
+            editor.remove(KEY_SHARED_FOLDER_URI)
+        } else {
+            editor.putString(KEY_SHARED_FOLDER_URI, uri)
+        }
+        editor.apply()
+        _sharedFolderUriFlow.value = uri?.takeIf { it.isNotBlank() }
+    }
+
     fun getUserName(): String = _userNameFlow.value
     fun getFcmToken(): String = _fcmTokenFlow.value
     fun getThemeMode(): AppThemeMode = _themeModeFlow.value
@@ -246,5 +289,8 @@ class UserPreferencesManager(context: Context) {
     fun getLastUpdateCheckTime(): Long = _lastUpdateCheckTimeFlow.value
     fun getConnectionMode(): ConnectionMode = _connectionModeFlow.value
     fun isGodModeEnabled(): Boolean = _godModeEnabledFlow.value
+    fun isPeerConsentGranted(peerId: String): Boolean = _grantedGodPeersFlow.value.contains(peerId)
+    fun isRemotePeerAuthorized(peerId: String): Boolean = _authorizedRemotePeersFlow.value.contains(peerId)
+    fun getSharedFolderUri(): String? = _sharedFolderUriFlow.value
 }
 
