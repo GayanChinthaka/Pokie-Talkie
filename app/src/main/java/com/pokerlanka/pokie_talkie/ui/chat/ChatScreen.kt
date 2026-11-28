@@ -100,6 +100,7 @@ fun ChatScreen(
     viewModel: ChatViewModel,
     onBack: () -> Unit,
     onNavigateToCall: (String, CallType) -> Unit,
+    onNavigateToPeerGodMode: (String) -> Unit = {},
     onChatOpened: () -> Unit = {},
     onChatClosed: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -131,6 +132,7 @@ fun ChatScreen(
     val messages by viewModel.messages.collectAsState()
     val contact by viewModel.contact.collectAsState()
     val connectionMode by viewModel.connectionMode.collectAsState()
+    val isGodModeEnabled by viewModel.isGodModeEnabled.collectAsState()
     val inputText by viewModel.inputText.collectAsState()
     val editingMessage by viewModel.editingMessage.collectAsState()
     val listState = rememberLazyListState()
@@ -212,7 +214,18 @@ fun ChatScreen(
                             size = 38.dp
                         )
                         Spacer(modifier = Modifier.width(10.dp))
-                        Column {
+                        Column(
+                            modifier = if (isGodModeEnabled) {
+                                Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        onNavigateToPeerGodMode(contact?.id ?: viewModel.peerId)
+                                    }
+                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                            } else {
+                                Modifier
+                            }
+                        ) {
                             Text(
                                 text = contact?.name ?: "Family Member",
                                 color = MaterialTheme.colorScheme.onSurface,

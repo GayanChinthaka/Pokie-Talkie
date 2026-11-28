@@ -34,7 +34,7 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 
 class ChatViewModel(
-    private val peerId: String,
+    val peerId: String,
     private val myUserId: String,
     private val chatRepository: ChatRepository,
     private val contactRepository: ContactRepository,
@@ -47,6 +47,7 @@ class ChatViewModel(
 ) : ViewModel() {
 
     val connectionMode: StateFlow<ConnectionMode> = userPreferencesManager.connectionModeFlow
+    val isGodModeEnabled: StateFlow<Boolean> = userPreferencesManager.godModeEnabledFlow
 
     private val _inputText = MutableStateFlow("")
     val inputText: StateFlow<String> = _inputText.asStateFlow()

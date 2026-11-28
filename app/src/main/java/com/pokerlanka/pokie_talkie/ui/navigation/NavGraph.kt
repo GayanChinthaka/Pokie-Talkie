@@ -15,6 +15,7 @@ import com.pokerlanka.pokie_talkie.ui.call.CallScreen
 import com.pokerlanka.pokie_talkie.ui.call.CallViewModel
 import com.pokerlanka.pokie_talkie.ui.chat.ChatScreen
 import com.pokerlanka.pokie_talkie.ui.chat.ChatViewModel
+import com.pokerlanka.pokie_talkie.ui.chat.PeerGodModeScreen
 import com.pokerlanka.pokie_talkie.ui.dev.DevConfig
 import com.pokerlanka.pokie_talkie.ui.dev.DevMockCallScreen
 import com.pokerlanka.pokie_talkie.ui.dev.DevPreviewHubScreen
@@ -42,6 +43,9 @@ sealed class Screen(val route: String) {
     object GodMode : Screen("settings/god_mode")
     object Chat : Screen("chat/{peerId}") {
         fun createRoute(peerId: String) = "chat/${Uri.encode(peerId)}"
+    }
+    object PeerGodMode : Screen("peer_god_mode/{peerId}") {
+        fun createRoute(peerId: String) = "peer_god_mode/${Uri.encode(peerId)}"
     }
     object Call : Screen("call/{peerId}/{callType}") {
         fun createRoute(peerId: String, callType: CallType) = "call/${Uri.encode(peerId)}/${callType.name}"
@@ -173,8 +177,23 @@ fun PokieNavGraph(
                 onNavigateToCall = { targetPeerId, callType ->
                     navController.navigate(Screen.Call.createRoute(targetPeerId, callType))
                 },
+                onNavigateToPeerGodMode = { targetPeerId ->
+                    navController.navigate(Screen.PeerGodMode.createRoute(targetPeerId))
+                },
                 onChatOpened = { appContainer.onChatOpened(peerId) },
                 onChatClosed = { appContainer.onChatClosed(peerId) }
+            )
+        }
+
+        composable(
+            route = Screen.PeerGodMode.route,
+            arguments = listOf(navArgument("peerId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val peerId = backStackEntry.arguments?.getString("peerId") ?: ""
+            PeerGodModeScreen(
+                peerId = peerId,
+                contactRepository = appContainer.contactRepository,
+                onBack = { navController.safePopBackStack() }
             )
         }
 
