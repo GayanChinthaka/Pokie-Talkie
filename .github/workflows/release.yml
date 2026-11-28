@@ -94,6 +94,7 @@ jobs:
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          GOD_MODE_PASSWORD: ${{ secrets.GOD_MODE_PASSWORD }}
         run: |
           ./gradlew -Dorg.gradle.java.home="$JAVA_HOME" :app:testDebugUnitTest :app:assembleRelease --no-daemon
 
